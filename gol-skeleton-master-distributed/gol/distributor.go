@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/rpc"
 	"strconv"
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 
 	"uk.ac.bris.cs/gameoflife/util"
@@ -82,12 +83,12 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
-	//ticker := time.NewTicker(2 * time.Second)
-	//done := make(chan bool)
+	ticker := time.NewTicker(2 * time.Second)
+	done := make(chan bool)
 	//pause := false
-	//quit := false
+	quit := false
 	//waitToUnpause := make(chan bool)
-	/*go func() {
+	go func() {
 		for {
 			if !quit {
 				select {
@@ -105,13 +106,13 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				return
 			}
 		}
-	}()*/
+	}()
 
 	//server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 	flag.Parse()
-	client, err := rpc.Dial("tcp", "127.0.0.1:8030")
+	client, err := rpc.Dial("tcp", "35.173.196.216:8030")
 	if err != nil {
-		log.Fatal("dialing:", err)
+		log.Fatal("Failed connecting GolEngine:", err)
 	}
 	defer client.Close()
 	//makeCall(client, t)
@@ -125,8 +126,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	world = response.World
 	turn = response.TurnsDone
 
-	//ticker.Stop()
-	//done <- true
+	ticker.Stop()
+	done <- true
 
 	//handleOutput(p, c, world, p.Turns)
 
