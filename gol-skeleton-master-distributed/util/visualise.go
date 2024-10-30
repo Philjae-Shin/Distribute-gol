@@ -62,7 +62,7 @@ func matricesToString(given, expected [][]uint8, width, height int) string {
 func getHorizontalBorder(start, middle, end string, width int) string {
 	border := start
 	for i := 0; i < width*2; i++ {
-		border += "─"
+		border += middle
 	}
 	border += end
 	return border

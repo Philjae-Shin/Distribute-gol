@@ -17,7 +17,7 @@ import (
 func TestAlive(t *testing.T) {
 	p := gol.Params{
 		Turns:       100000000,
-		Threads:     3,
+		Threads:     8,
 		ImageWidth:  512,
 		ImageHeight: 512,
 	}
@@ -26,23 +26,30 @@ func TestAlive(t *testing.T) {
 	keyPresses := make(chan rune, 2)
 	go gol.Run(p, events, keyPresses)
 
-	implemented := make(chan bool)
+	implemented := false
+	eventsClosed := make(chan bool)
+	aliveCellCounts := make(chan gol.AliveCellsCount)
+
 	go func() {
-		timer := time.After(5 * time.Second)
-		select {
-		case <-timer:
-			t.Fatal("no AliveCellsCount events received in 5 seconds")
-		case <-implemented:
-			return
+		for event := range events {
+			switch e := event.(type) {
+			case gol.AliveCellsCount:
+				aliveCellCounts <- e
+			}
 		}
+		eventsClosed <- true
 	}()
 
+	timer := time.After(5 * time.Second)
+
 	i := 0
-	for event := range events {
-		switch e := event.(type) {
-		case gol.AliveCellsCount:
+	for {
+		select {
+		case e := <-aliveCellCounts:
 			var expected int
-			if e.CompletedTurns <= 10000 {
+			if e.CompletedTurns == 0 {
+				t.Error("ERROR: Count reported for turn 0, should have a delay.")
+			} else if e.CompletedTurns <= 10000 {
 				expected = alive[e.CompletedTurns]
 			} else if e.CompletedTurns%2 == 0 {
 				expected = 5565
@@ -51,21 +58,25 @@ func TestAlive(t *testing.T) {
 			}
 			actual := e.CellsCount
 			if expected != actual {
-				t.Fatalf("At turn %v expected %v alive cells, got %v instead", e.CompletedTurns, expected, actual)
+				t.Fatalf("ERROR: At turn %v expected %v alive cells, got %v instead", e.CompletedTurns, expected, actual)
 			} else {
-				fmt.Println(event)
-				if i == 0 {
-					implemented <- true
-				}
+				t.Log(e)
+				implemented = true
 				i++
+
+				if i >= 5 {
+					keyPresses <- 'q'
+					return
+				}
 			}
-		}
-		if i >= 5 {
-			keyPresses <- 'q'
-			return
+		case <-timer:
+			if !implemented {
+				t.Fatal("ERROR: No AliveCellsCount events received in 5 seconds")
+			}
+		case <-eventsClosed:
+			t.Fatal("ERROR: Not enough AliveCellsCount events received")
 		}
 	}
-	t.Fatal("not enough AliveCellsCount events received")
 }
 
 func readAliveCounts(width, height int) map[int]int {
