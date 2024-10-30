@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/rpc"
-	"os"
-
+	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -14,42 +14,13 @@ import (
 // analogue to updateWorld function
 /** Super-Secret `reversing a string' method we can't allow clients to see. **/
 /*func ReverseString(s string, i int) string {
-time.Sleep(time.DurationCall runes[j], runes[i]
-}
-return string(runes)
+	time.Sleep(time.Duration(rand.Intn(i)) * time.Second)
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
 }*/
-
-var listener net.Listener
-var pause bool
-var quit bool
-var kill bool = false
-var waitToUnpause chan bool
-
-// updateBroker
-var turnChan chan int
-var worldChan chan [][]uint8
-
-// updateWorker
-var workerTurnChan chan int
-var workerWorldChan chan [][]uint8
-
-var turnInternal chan int
-var worldInternal chan [][]uint8
-
-var workerId int
-var nextAddr string
-var globalWorld [][]uint8
-var completedTurns int
-var incr int
-var resume chan bool
-var done chan bool
-
-func getOutboundIP() string {
-	conn, _ := net.Dial("udp", "8.8.8.8:80")
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr).IP.String()
-	return localAddr
-}
 
 func mod(a, b int) int {
 	return (a%b + b) % b
@@ -79,7 +50,7 @@ func CalculateNextState(height, width, startY, endY int, world [][]byte) ([][]by
 	newWorld := make([][]byte, endY-startY)
 	flipCell := make([]util.Cell, height, width)
 	for i := 0; i < endY-startY; i++ {
-		newWorld[i] = make([]byte, width)
+		newWorld[i] = make([]byte, len(world[0]))
 		// copy(newWorld[i], world[startY+i])
 	}
 
@@ -108,139 +79,66 @@ func CalculateNextState(height, width, startY, endY int, world [][]byte) ([][]by
 
 type GolOperations struct{}
 
-func (s *GolOperations) Report(req stubs.ActionRequest, res *stubs.Response) (err error) {
-	//res.TurnsDone, res.World = sendToBroker()
-	return
-}
-
-func UpdateBroker2(tchan chan int, wchan chan [][]uint8, client *rpc.Client) {
-	for {
-		t := <-tchan
-		ws := <-wchan
-		towork := stubs.UpdateRequest{Turns: t, World: ws, WorkerId: workerId}
-		status := new(stubs.StatusReport)
-		err := client.Call(stubs.UpdateBroker, towork, status)
-		if err != nil {
-			fmt.Println("RPC client returned error:")
-			fmt.Println(err)
-			fmt.Println("Dropping division.")
-		}
+func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err error) {
+	fmt.Println(req.Turns)
+	if req.Turns == 0 {
+		res.World = req.World
+		res.TurnsDone = 0
+		return
 	}
-}
 
-func (s *GolOperations) Action(req stubs.StateRequest, res *stubs.StatusReport) (err error) {
-	switch req.State {
-	case stubs.Pause:
-		pause = true
-	case stubs.UnPause:
-		pause = false
-	}
-	return nil
-}
-
-func (s *GolOperations) ActionWithReport(req stubs.StateRequest, res *stubs.StatusReport) (err error) {
-	switch req.State {
-	case stubs.Quit:
-		quit = true
-		fmt.Println("pause")
-	case stubs.Save:
-	case stubs.Kill:
-		kill = true
-		defer os.Exit(0)
-	}
-	fmt.Println("deafault")
-	return nil
-}
-
-func (s *GolOperations) UpdateWorker(req stubs.UpdateRequest, res *stubs.StatusReport) (err error) {
-	fmt.Println("UpdateWorld called")
-	fmt.Println("From:", req.Turns)
-	globalWorld = req.World
-	completedTurns = req.Turns
-	res.Status = 7
-	incr++
-	return
-}
-
-func (s *GolOperations) Process(req stubs.WorkerRequest, res *stubs.Response) (err error) {
-	fmt.Println("Processing")
-	workerId = req.WorkerId
-	var newWorldSlice [][]uint8
-	globalWorld = req.World
-	pause = false
-	quit = false
+	pause := false
+	quit := false
 	turn := 0
-	incr = 0
+	threads := 1
+
 	for t := 0; t < req.Turns; t++ {
-		if incr == t && !pause && !quit {
-			if pause {
-				fmt.Println("Paused")
+		cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
+		//if pause {
+		//	<-waitToUnpause
+		//}
+		if !pause && !quit {
+			turn = t
+			for j := range req.World {
+				copy(req.PrevWorld[j], req.World[j])
 			}
-			if !kill {
-				fmt.Println("Loop iteration", t, "on worker", workerId)
-				newWorldSlice, _ = CalculateNextState(req.Params.ImageHeight, req.Params.ImageWidth, req.StartY, req.EndY, globalWorld)
-				turn++
-				fmt.Println("chan1")
-				turnChan <- turn
-				fmt.Println("chan2")
-				worldChan <- newWorldSlice
-				fmt.Println("chan3")
-				fmt.Println(turn)
-			} else {
-				if kill {
-					break
-				} else {
-					continue
+			if threads == 1 {
+				req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+			}
+
+			/*for _, cell := range cellFlip {
+				// defer wg.Done()
+				c.events <- CellFlipped{
+					CompletedTurns: turn,
+					Cell:           cell,
 				}
 			}
+
+			c.events <- TurnComplete{
+				CompletedTurns: turn,
+			}*/
+
 		} else {
-			t--
+			if quit {
+				break
+			} else {
+				continue
+			}
 		}
+		fmt.Println(cellFlip)
 	}
-	res.World = newWorldSlice
+
+	res.World = req.World
 	res.TurnsDone = turn
 	return
 }
 
-// kill := make(chan bool)
-
 func main() {
-	pAddr := flag.String("port", "8050", "Port to listen on")
-	pIp := flag.String("ip", "127.0.0.1:8030", "Port to listen on")
-	brokerAddr := flag.String("broker", "127.0.0.1:8030", "Address of broker instance")
+	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
-	client, err := rpc.Dial("tcp", *brokerAddr)
-	//client, err := rpc.Dial("tcp", "127.0.0.1:8030")
-	if err != nil {
-		fmt.Println(err)
-	}
+	rand.Seed(time.Now().UnixNano())
 	rpc.Register(&GolOperations{})
-	//fmt.Println(*pAddr)
-	fmt.Println(getOutboundIP() + ":" + *pAddr)
-	listenerr, err := net.Listen("tcp", ":"+*pAddr)
-	//fmt.Println(getOutboundIP() + ":" + "8050")
-	//listenerr, err := net.Listen("tcp", ":"+"8050")
-	if err != nil {
-		fmt.Println(err)
-	}
-	subscribe := stubs.SubscribeRequest{
-		WorkerAddress: *pIp + ":" + *pAddr,
-		//WorkerAddress: getOutboundIP() + ":" + "8050",
-	}
-	turnChan = make(chan int)
-	turnInternal = make(chan int)
-	worldChan = make(chan [][]uint8)
-	worldInternal = make(chan [][]uint8)
-	waitToUnpause = make(chan bool)
-
-	//go receive()
-	//go send()
-	client.Call(stubs.ConnectWorker, subscribe, new(stubs.StatusReport))
-
-	//client.Call(stubs.ConnectWorker, subscribe, new(stubs.StatusReport))
-	defer listenerr.Close()
-	go UpdateBroker2(turnChan, worldChan, client)
-	//go UpdateWorker2(client)
-	rpc.Accept(listenerr)
-
+	listener, _ := net.Listen("tcp", ":"+*pAddr)
+	defer listener.Close()
+	rpc.Accept(listener)
 }
