@@ -21,6 +21,8 @@ return string(runes)
 }*/
 
 var listeners net.Listener
+var pause bool
+var waitToUnpause chan bool
 
 func mod(a, b int) int {
 	return (a%b + b) % b
@@ -85,6 +87,14 @@ func (s *GolOperations) ListenToQuit(req stubs.KillRequest, res *stubs.Response)
 	return
 }
 
+func (s *GolOperations) ListenToPause(req stubs.PauseRequest, res *stubs.Response) (err error) {
+	pause = req.Pause
+	if !pause {
+		waitToUnpause <- true
+	}
+	return
+}
+
 func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err error) {
 
 	if req.Turns == 0 {
@@ -92,15 +102,28 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 		res.TurnsDone = 0
 		return
 	}
-
+	pause = false
 	threads := 1
-	// turn := 0
-	if threads == 1 {
-		res.World, _ = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
-
+	turn := 0
+	for t := 0; t < req.Turns; t++ {
+		if pause {
+			<-waitToUnpause
+		}
+		if !pause /*&& !quit*/ {
+			turn = t
+			if threads == 1 {
+				res.World, _ = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+			}
+		} /*else {
+			if quit {
+				break
+			} else {
+				continue
+			}
+		}*/
 	}
 
-	// res.TurnsDone = turn
+	res.TurnsDone = turn
 	return
 }
 

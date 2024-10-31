@@ -118,6 +118,12 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
+
+	// brokerAddr := flag.String("broker", "127.0.0.1:8030", "Address of broker instance")
+	// flag.Parse()
+	// client, _ := rpc.Dial("tcp", *brokerAddr)
+	// client.Call(stubs.)
+
 	// TODO: Create a 2D slice to store the world.
 	world := make([][]uint8, p.ImageHeight)
 	for i := range world {
@@ -171,7 +177,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	//server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 	flag.Parse()
-	client, err := rpc.Dial("tcp", "127.0.0.1:8030")
+	client, err := rpc.Dial("tcp", "98.83.6.217:8030")
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
@@ -189,8 +195,10 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				switch command {
 				case Pause:
 					turnChan <- turn
+					client.Go(stubs.PauseHandler, stubs.PauseRequest{Pause: true}, new(stubs.Response), nil)
 				case unPause:
 					turnChan <- turn
+					client.Go(stubs.PauseHandler, stubs.PauseRequest{Pause: false}, new(stubs.Response), nil)
 				case Quit:
 					worldChan <- world
 					turnChan <- turn
@@ -201,25 +209,21 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					worldChan <- world
 					turnChan <- turn
 					client.Go(stubs.KillingHandler, stubs.KillRequest{Kill: 0}, new(stubs.Response), nil)
-
 				}
 			}
 		}
 	}()
 
-	for t := 0; t < p.Turns; t++ {
-		turn = t
-		//makeCall(client, t)
-		request := stubs.Request{World: world,
-			Turns:       p.Turns,
-			ImageWidth:  p.ImageWidth,
-			ImageHeight: p.ImageHeight}
-		response := new(stubs.Response)
-		client.Call(stubs.ProcessTurnsHandler, request, response)
+	//makeCall(client, t)
+	request := stubs.Request{World: world,
+		Turns:       p.Turns,
+		ImageWidth:  p.ImageWidth,
+		ImageHeight: p.ImageHeight}
+	response := new(stubs.Response)
+	client.Call(stubs.ProcessTurnsHandler, request, response)
 
-		world = response.World
-		// turn = response.TurnsDone
-	}
+	world = response.World
+	// turn = response.TurnsDone
 
 	ticker.Stop()
 	done <- true
