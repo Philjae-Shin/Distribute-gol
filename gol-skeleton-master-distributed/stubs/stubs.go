@@ -1,17 +1,37 @@
 package stubs
 
-var ProcessTurnsHandler = "GolOperations.Process"
-var OperationsHandler = "GolOperations.Operations"
+const (
+	Process        = "GolEngine.Process"
+	GetAliveCells  = "GolEngine.GetAliveCells"
+	StopProcessing = "GolEngine.StopProcessing"
+	GetWorld       = "GolEngine.GetWorld"
+)
 
-type Response struct {
-	World     [][]uint8
-	TurnsDone int
-}
-
-type Request struct {
+type EngineRequest struct {
 	World       [][]uint8
-	PrevWorld   [][]uint8
-	Turns       int
 	ImageWidth  int
 	ImageHeight int
+	Turns       int
+}
+
+type EngineResponse struct {
+	World [][]uint8
+}
+
+type AliveCellsCountRequest struct{}
+
+type AliveCellsCountResponse struct {
+	CompletedTurns int
+	CellsCount     int
+}
+
+type StopRequest struct{}
+
+type StopResponse struct{}
+
+type GetWorldRequest struct{}
+
+type GetWorldResponse struct {
+	World          [][]uint8
+	CompletedTurns int
 }

@@ -3,142 +3,135 @@ package main
 import (
 	"flag"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/rpc"
-	"time"
+	"sync"
+
 	"uk.ac.bris.cs/gameoflife/stubs"
-	"uk.ac.bris.cs/gameoflife/util"
 )
 
-// analogue to updateWorld function
-/** Super-Secret `reversing a string' method we can't allow clients to see. **/
-/*func ReverseString(s string, i int) string {
-	time.Sleep(time.Duration(rand.Intn(i)) * time.Second)
-	runes := []rune(s)
-	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-	return string(runes)
-}*/
+type GolEngine struct {
+	mu         sync.Mutex
+	world      [][]uint8
+	height     int
+	width      int
+	turn       int
+	totalTurns int
+	stop       bool
+}
 
 func mod(a, b int) int {
 	return (a%b + b) % b
 }
 
-func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
-
-	h := height
-	w := width
-	noOfNeighbours := 0
-
-	neighbour := []byte{world[mod(y+1, h)][mod(x, w)], world[mod(y+1, h)][mod(x+1, w)], world[mod(y, h)][mod(x+1, w)],
-		world[mod(y-1, h)][mod(x+1, w)], world[mod(y-1, h)][mod(x, w)], world[mod(y-1, h)][mod(x-1, w)],
-		world[mod(y, h)][mod(x-1, w)], world[mod(y+1, h)][mod(x-1, w)]}
-
-	for i := 0; i < 8; i++ {
-		if neighbour[i] == 255 {
-			noOfNeighbours++
-		}
-	}
-
-	return noOfNeighbours
-}
-
-func CalculateNextState(height, width, startY, endY int, world [][]byte) ([][]byte, []util.Cell) {
-
-	newWorld := make([][]byte, endY-startY)
-	flipCell := make([]util.Cell, height, width)
-	for i := 0; i < endY-startY; i++ {
-		newWorld[i] = make([]byte, len(world[0]))
-		// copy(newWorld[i], world[startY+i])
-	}
-
-	for y := 0; y < endY-startY; y++ {
-		for x := 0; x < width; x++ {
-			noOfNeighbours := calculateNeighbours(height, width, world, startY+y, x)
-			if world[startY+y][x] == 255 {
-				if noOfNeighbours < 2 {
-					newWorld[y][x] = 0
-					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-				} else if noOfNeighbours == 2 || noOfNeighbours == 3 {
-					newWorld[y][x] = 255
-				} else if noOfNeighbours > 3 {
-					newWorld[y][x] = 0
-					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-				}
-			} else if world[startY+y][x] == 0 && noOfNeighbours == 3 {
-				newWorld[y][x] = 255
-				flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-			}
-		}
-	}
-
-	return newWorld, flipCell
-}
-
-type GolOperations struct{}
-
-func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err error) {
-	fmt.Println(req.Turns)
-	if req.Turns == 0 {
-		res.World = req.World
-		res.TurnsDone = 0
-		return
-	}
-
-	pause := false
-	quit := false
-	turn := 0
-	threads := 1
-
-	for t := 0; t < req.Turns; t++ {
-		cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
-		//if pause {
-		//	<-waitToUnpause
-		//}
-		if !pause && !quit {
-			turn = t
-			for j := range req.World {
-				copy(req.PrevWorld[j], req.World[j])
-			}
-			if threads == 1 {
-				req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
-			}
-
-			/*for _, cell := range cellFlip {
-				// defer wg.Done()
-				c.events <- CellFlipped{
-					CompletedTurns: turn,
-					Cell:           cell,
-				}
-			}
-
-			c.events <- TurnComplete{
-				CompletedTurns: turn,
-			}*/
-
-		} else {
-			if quit {
-				break
-			} else {
+func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
+	count := 0
+	for deltaY := -1; deltaY <= 1; deltaY++ {
+		for deltaX := -1; deltaX <= 1; deltaX++ {
+			if deltaX == 0 && deltaY == 0 {
 				continue
 			}
+			nx := mod(x+deltaX, width)
+			ny := mod(y+deltaY, height)
+			if world[ny][nx] == 255 {
+				count++
+			}
 		}
-		fmt.Println(cellFlip)
 	}
+	return count
+}
 
-	res.World = req.World
-	res.TurnsDone = turn
-	return
+func (g *GolEngine) Process(req stubs.EngineRequest, res *stubs.EngineResponse) error {
+	g.mu.Lock()
+	g.world = req.World
+	g.height = req.ImageHeight
+	g.width = req.ImageWidth
+	g.turn = 0
+	g.totalTurns = req.Turns
+	g.stop = false
+	g.mu.Unlock()
+
+	go func() {
+		for t := 0; t < g.totalTurns; t++ {
+			g.mu.Lock()
+			if g.stop {
+				g.mu.Unlock()
+				break
+			}
+			newWorld := make([][]uint8, g.height)
+			for y := 0; y < g.height; y++ {
+				newWorld[y] = make([]uint8, g.width)
+				for x := 0; x < g.width; x++ {
+					neighbours := calculateNeighbours(g.world, x, y, g.width, g.height)
+					if g.world[y][x] == 255 {
+						if neighbours == 2 || neighbours == 3 {
+							newWorld[y][x] = 255
+						} else {
+							newWorld[y][x] = 0
+						}
+					} else {
+						if neighbours == 3 {
+							newWorld[y][x] = 255
+						} else {
+							newWorld[y][x] = 0
+						}
+					}
+				}
+			}
+			g.world = newWorld
+			g.turn = t + 1
+			g.mu.Unlock()
+		}
+	}()
+
+	res.World = nil
+	return nil
+}
+
+func (g *GolEngine) GetAliveCells(req stubs.AliveCellsCountRequest, res *stubs.AliveCellsCountResponse) error {
+	g.mu.Lock()
+	count := 0
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			if g.world[y][x] == 255 {
+				count++
+			}
+		}
+	}
+	res.CellsCount = count
+	res.CompletedTurns = g.turn
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolEngine) StopProcessing(req stubs.StopRequest, res *stubs.StopResponse) error {
+	g.mu.Lock()
+	g.stop = true
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolEngine) GetWorld(req stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	res.World = g.world
+	res.CompletedTurns = g.turn
+	return nil
 }
 
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
 	flag.Parse()
-	rand.Seed(time.Now().UnixNano())
-	rpc.Register(&GolOperations{})
-	listener, _ := net.Listen("tcp", ":"+*pAddr)
+
+	golEngine := new(GolEngine)
+	rpc.Register(golEngine)
+	listener, err := net.Listen("tcp", ":"+*pAddr)
+	if err != nil {
+		fmt.Println("Error starting server:", err)
+		return
+	}
 	defer listener.Close()
+	fmt.Println("Gol Engine listening on port", *pAddr)
 	rpc.Accept(listener)
 }
