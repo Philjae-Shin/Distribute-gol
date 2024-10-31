@@ -87,7 +87,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 	//pause := false
-	//quit := false
+	quit := false
 	//finished := false
 
 	var mu sync.Mutex
@@ -145,23 +145,22 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	//handleOutput(p, c, world, p.Turns)
 
-	// Send the output and invoke writePgmImage() in io.go
-	// Sends the world slice to io.go
 	// TODO: Report the final state using FinalTurnCompleteEvent.
 
-	aliveCells := make([]util.Cell, p.ImageHeight*p.ImageWidth)
-	_, aliveCells = calculateAliveCells(p, world)
-	report := FinalTurnComplete{
-		CompletedTurns: p.Turns,
+	_, aliveCells := calculateAliveCells(p, world)
+
+	handleOutput(p, c, world, turn)
+
+	if quit {
+		c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
+	}
+	c.events <- FinalTurnComplete{
+		CompletedTurns: turn,
 		Alive:          aliveCells,
 	}
-	c.events <- report
-	// Make sure that the Io has finished any output before exiting.
+
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	c.events <- StateChange{turn, Quitting}
-
-	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
 }
