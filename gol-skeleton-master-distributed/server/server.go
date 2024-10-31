@@ -85,6 +85,14 @@ func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse)
 			for y := 0; y < g.height; y++ {
 				newWorld[y] = make([]uint8, g.width)
 				for x := 0; x < g.width; x++ {
+					g.mu.Lock()
+					if g.stop || g.shutdown {
+						g.processing = false
+						g.mu.Unlock()
+						return
+					}
+					g.mu.Unlock()
+					
 					neighbours := calculateNeighbours(g.world, x, y, g.width, g.height)
 					if g.world[y][x] == 255 {
 						if neighbours == 2 || neighbours == 3 {
@@ -179,6 +187,7 @@ func (g *GolEngine) GetAliveCells(req *stubs.AliveCellsCountRequest, res *stubs.
 func (g *GolEngine) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse) error {
 	g.mu.Lock()
 	g.stop = true
+	g.processing = false
 	g.mu.Unlock()
 	return nil
 }
