@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/rpc"
 	"strconv"
-	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -73,73 +72,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		log.Fatal("Error calling Gol Engine:", err)
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
-	done := make(chan bool)
-	quit := false
-
-	go func() {
-		for {
-			select {
-			case key := <-keyPresses:
-				if key == 'q' {
-					// 서버에 중지 요청
-					stopRequest := stubs.StopRequest{}
-					stopResponse := new(stubs.StopResponse)
-					err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
-					if err != nil {
-						log.Println("Error calling StopProcessing:", err)
-					}
-					quit = true
-					done <- true
-					return
-				}
-			}
-		}
-	}()
-
-	turn := 0
-
-	go func() {
-		for {
-			if !quit {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					// Get alive cells from server
-					countRequest := stubs.AliveCellsCountRequest{}
-					countResponse := new(stubs.AliveCellsCountResponse)
-					err := client.Call(stubs.GetAliveCells, countRequest, countResponse)
-					if err != nil {
-						log.Println("Error calling GetAliveCells:", err)
-					} else {
-						aliveReport := AliveCellsCount{
-							CompletedTurns: countResponse.CompletedTurns,
-							CellsCount:     countResponse.CellsCount,
-						}
-						c.events <- aliveReport
-						turn = countResponse.CompletedTurns
-					}
-				}
-			} else {
-				return
-			}
-		}
-	}()
-
-	<-done
-
-	// Get FinalState from server
-	finalWorldRequest := stubs.GetWorldRequest{}
-	finalWorldResponse := new(stubs.GetWorldResponse)
-	err = client.Call(stubs.GetWorld, finalWorldRequest, finalWorldResponse)
-	if err != nil {
-		log.Println("Error calling GetWorld:", err)
-	} else {
-		world = finalWorldResponse.World
-	}
-
-	handleOutput(p, c, world, turn)
+	world = response.World
+	turn := response.CompletedTurns
 
 	aliveCells := []util.Cell{}
 	for y := 0; y < p.ImageHeight; y++ {
@@ -149,6 +83,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			}
 		}
 	}
+
+	handleOutput(p, c, world, turn)
+
 	c.events <- FinalTurnComplete{
 		CompletedTurns: turn,
 		Alive:          aliveCells,

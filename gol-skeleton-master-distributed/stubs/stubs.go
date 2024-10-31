@@ -15,7 +15,8 @@ type EngineRequest struct {
 }
 
 type EngineResponse struct {
-	World [][]uint8
+	World          [][]uint8
+	CompletedTurns int
 }
 
 type AliveCellsCountRequest struct{}
