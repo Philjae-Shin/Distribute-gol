@@ -1,6 +1,7 @@
 package gol
 
 import (
+	"fmt"
 	"log"
 	"net/rpc"
 	"strconv"
@@ -20,7 +21,7 @@ type distributorChannels struct {
 
 func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	c.ioCommand <- ioOutput
-	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
+	outFilename := fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, t)
 	c.ioFilename <- outFilename
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
@@ -70,9 +71,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	// 시뮬레이션 시작
 	err = client.Call(stubs.Process, request, response)
-	//if err != nil {
-	//	log.Fatal("Error calling Gol Engine:", err)
-	//}
+	if err != nil {
+		log.Fatal("Error calling Gol Engine:", err)
+	}
 
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
@@ -108,7 +109,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				countResponse := new(stubs.AliveCellsCountResponse)
 				err := client.Call(stubs.GetAliveCells, countRequest, countResponse)
 				if err != nil {
-					log.Println("Error calling GetAliveCells:", err)
+					return
 				} else {
 					if countResponse.CompletedTurns > 0 {
 						aliveReport := AliveCellsCount{
