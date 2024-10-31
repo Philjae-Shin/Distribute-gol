@@ -87,23 +87,51 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 		return
 	}
 
+	threads := 1
+	turn := 0
 	pause := false
 	quit := false
-	turn := 0
-	threads := 1
+	waitToUnpause := make(chan bool)
+	/*go func() {
+		for {
+
+			select {
+			case command := <-action:
+				switch command {
+				case Pause:
+					pause = true
+					turnChan <- turn
+				case unPause:
+					pause = false
+					turnChan <- turn
+					waitToUnpause <- true
+				case Quit:
+					worldChan <- world
+					turnChan <- turn
+					quit = true
+					//return
+				case Save:
+					worldChan <- world
+					turnChan <- turn
+				}
+			}
+			//}
+		}
+	}()*/
 
 	for t := 0; t < req.Turns; t++ {
-		cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
-		//if pause {
-		//	<-waitToUnpause
-		//}
+		//cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
+		if pause {
+			<-waitToUnpause
+		}
 		if !pause && !quit {
 			turn = t
 			for j := range req.World {
 				copy(req.PrevWorld[j], req.World[j])
 			}
 			if threads == 1 {
-				req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+				req.World, _ = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+				//req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
 			}
 
 			/*for _, cell := range cellFlip {
@@ -125,7 +153,7 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 				continue
 			}
 		}
-		fmt.Println(cellFlip)
+		//fmt.Println(cellFlip)
 	}
 
 	res.World = req.World
