@@ -1,9 +1,12 @@
 package gol
 
 import (
+	"flag"
+	"log"
+	"net/rpc"
 	"strconv"
-	"sync"
 	"time"
+	"uk.ac.bris.cs/gameoflife/stubs"
 
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -15,66 +18,6 @@ type distributorChannels struct {
 	ioFilename chan<- string
 	ioOutput   chan<- uint8
 	ioInput    <-chan uint8
-}
-
-const Save int = 0
-const Quit int = 1
-const Pause int = 2
-const unPause int = 3
-
-func mod(a, b int) int {
-	return (a%b + b) % b
-}
-
-func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
-
-	h := height
-	w := width
-	noOfNeighbours := 0
-
-	neighbour := []byte{world[mod(y+1, h)][mod(x, w)], world[mod(y+1, h)][mod(x+1, w)], world[mod(y, h)][mod(x+1, w)],
-		world[mod(y-1, h)][mod(x+1, w)], world[mod(y-1, h)][mod(x, w)], world[mod(y-1, h)][mod(x-1, w)],
-		world[mod(y, h)][mod(x-1, w)], world[mod(y+1, h)][mod(x-1, w)]}
-
-	for i := 0; i < 8; i++ {
-		if neighbour[i] == 255 {
-			noOfNeighbours++
-		}
-	}
-
-	return noOfNeighbours
-}
-
-func calculateNextState(height, width, startY, endY int, world [][]byte) ([][]byte, []util.Cell) {
-
-	newWorld := make([][]byte, endY-startY)
-	flipCell := make([]util.Cell, height, width)
-	for i := 0; i < endY-startY; i++ {
-		newWorld[i] = make([]byte, len(world[0]))
-		// copy(newWorld[i], world[startY+i])
-	}
-
-	for y := 0; y < endY-startY; y++ {
-		for x := 0; x < width; x++ {
-			noOfNeighbours := calculateNeighbours(height, width, world, startY+y, x)
-			if world[startY+y][x] == 255 {
-				if noOfNeighbours < 2 {
-					newWorld[y][x] = 0
-					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-				} else if noOfNeighbours == 2 || noOfNeighbours == 3 {
-					newWorld[y][x] = 255
-				} else if noOfNeighbours > 3 {
-					newWorld[y][x] = 0
-					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-				}
-			} else if world[startY+y][x] == 0 && noOfNeighbours == 3 {
-				newWorld[y][x] = 255
-				flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
-			}
-		}
-	}
-
-	return newWorld, flipCell
 }
 
 func calculateAliveCells(p Params, world [][]byte) (int, []util.Cell) {
@@ -101,19 +44,29 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 			c.ioOutput <- world[y][x]
 		}
 	}
-
-	// Wait for IO to finish
-	c.ioCommand <- ioCheckIdle
-	<-c.ioIdle
-	c.events <- ImageOutputComplete{
-		CompletedTurns: t,
-		Filename:       outFilename,
-	}
 }
 
-func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
+/*func makeCall(client *rpc.Client, message string) {
+	request := stubs.Request{Message: message}
+	response := new(stubs.Response)
+	client.Call(stubs.ReverseHandler, request, response)
+	fmt.Println("Responded: " + response.Message)
+}*/
+
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
+	// TODO: Create a 2D slice to store the world.
+	world := make([][]uint8, p.ImageHeight)
+	prevWorld := make([][]uint8, p.ImageHeight)
+	for i := range world {
+		world[i] = make([]uint8, p.ImageWidth)
+		prevWorld[i] = make([]uint8, p.ImageWidth)
+	}
+
 	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
-	c.ioCommand <- ioInput
+
+	// Commands IO to read the initial file, giving the filename via the channel.
+	c.ioCommand <- 1
 	c.ioFilename <- filename
 	for y := 0; y < p.ImageHeight; y++ {
 		for x := 0; x < p.ImageWidth; x++ {
@@ -127,176 +80,74 @@ func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
 			}
 		}
 	}
-	return world
-}
 
-func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, action chan int) {
-	paused := false
-	for {
-		input := <-keyPresses
-		switch input {
-		case 's':
-			action <- Save
-		case 'q':
-			action <- Quit
-			return
-		case 'p':
-			if paused {
-				action <- unPause
-				paused = false
-			} else {
-				action <- Pause
-				paused = true
-			}
-		}
-	}
-}
-
-func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
-	world := make([][]uint8, p.ImageHeight)
-	prevWorld := make([][]uint8, p.ImageHeight)
-	for i := range world {
-		world[i] = make([]uint8, p.ImageWidth)
-		prevWorld[i] = make([]uint8, p.ImageWidth)
-	}
-
-	world = handleInput(p, c, world)
-
+	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
-	pause := false
+	//pause := false
 	quit := false
-	finished := false
-
-	var mu sync.Mutex
-
-	action := make(chan int)
-
-	go handleKeyPress(p, c, keyPresses, action)
-
-	// Send StateChange event indicating Executing state at the start
-	c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
-
-	// Start ticker for AliveCellsCount events
+	//waitToUnpause := make(chan bool)
 	go func() {
 		for {
-			select {
-			case <-done:
+			if !quit {
+				select {
+				case <-done:
+					return
+				case <-ticker.C:
+					aliveCount, _ := calculateAliveCells(p, prevWorld)
+					aliveReport := AliveCellsCount{
+						CompletedTurns: turn,
+						CellsCount:     aliveCount,
+					}
+					c.events <- aliveReport
+				}
+			} else {
 				return
-			case <-ticker.C:
-				mu.Lock()
-				snapshot := make([][]uint8, p.ImageHeight)
-				for i := range prevWorld {
-					snapshot[i] = make([]uint8, p.ImageWidth)
-					copy(snapshot[i], prevWorld[i])
-				}
-				currentTurn := turn
-				mu.Unlock()
-				aliveCount, _ := calculateAliveCells(p, snapshot)
-				c.events <- AliveCellsCount{
-					CompletedTurns: currentTurn,
-					CellsCount:     aliveCount,
-				}
 			}
 		}
 	}()
 
-	for !finished && (turn < p.Turns || pause) {
-		if pause {
-			select {
-			case command := <-action:
-				switch command {
-				case unPause:
-					pause = false
-					// Send StateChange event indicating Executing state
-					c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
-				case Quit:
-					quit = true
-					finished = true
-				case Save:
-					mu.Lock()
-					snapshot := make([][]uint8, p.ImageHeight)
-					for i := range world {
-						snapshot[i] = make([]uint8, p.ImageWidth)
-						copy(snapshot[i], world[i])
-					}
-					currentTurn := turn
-					mu.Unlock()
-					handleOutput(p, c, snapshot, currentTurn)
-				}
-			default:
-				// Sleep briefly to prevent busy waiting
-				time.Sleep(100 * time.Millisecond)
-			}
-			continue
-		}
-
-		select {
-		case command := <-action:
-			switch command {
-			case Pause:
-				pause = true
-				// Send StateChange event indicating Paused state
-				c.events <- StateChange{CompletedTurns: turn, NewState: Paused}
-			case Quit:
-				quit = true
-				finished = true
-			case Save:
-				mu.Lock()
-				snapshot := make([][]uint8, p.ImageHeight)
-				for i := range world {
-					snapshot[i] = make([]uint8, p.ImageWidth)
-					copy(snapshot[i], world[i])
-				}
-				currentTurn := turn
-				mu.Unlock()
-				handleOutput(p, c, snapshot, currentTurn)
-			}
-		default:
-			if !quit && turn < p.Turns {
-				mu.Lock()
-				for i := range world {
-					copy(prevWorld[i], world[i])
-				}
-				mu.Unlock()
-				var flipFragment []util.Cell
-				world, flipFragment = calculateNextState(p.ImageHeight, p.ImageWidth, 0, p.ImageHeight, prevWorld)
-				for _, cell := range flipFragment {
-					c.events <- CellFlipped{
-						CompletedTurns: turn,
-						Cell:           cell,
-					}
-				}
-				mu.Lock()
-				turn++
-				mu.Unlock()
-				c.events <- TurnComplete{CompletedTurns: turn}
-			} else if quit {
-				break
-			} else if turn >= p.Turns {
-				break
-			}
-		}
+	//server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
+	flag.Parse()
+	client, err := rpc.Dial("tcp", "98.83.6.217:8030")
+	if err != nil {
+		log.Fatal("dialing:", err)
 	}
+	defer client.Close()
+	//makeCall(client, t)
+	request := stubs.Request{World: world,
+		PrevWorld:   prevWorld,
+		Turns:       p.Turns,
+		ImageWidth:  p.ImageWidth,
+		ImageHeight: p.ImageHeight}
+	response := new(stubs.Response)
+	client.Call(stubs.ProcessTurnsHandler, request, response)
+	world = response.World
+	turn = response.TurnsDone
 
 	ticker.Stop()
 	done <- true
 
-	_, aliveCells := calculateAliveCells(p, world)
+	//handleOutput(p, c, world, p.Turns)
 
-	handleOutput(p, c, world, turn)
+	// Send the output and invoke writePgmImage() in io.go
+	// Sends the world slice to io.go
+	// TODO: Report the final state using FinalTurnCompleteEvent.
 
-	if quit {
-		c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
-	}
-	c.events <- FinalTurnComplete{
-		CompletedTurns: turn,
+	aliveCells := make([]util.Cell, p.ImageHeight*p.ImageWidth)
+	_, aliveCells = calculateAliveCells(p, world)
+	report := FinalTurnComplete{
+		CompletedTurns: p.Turns,
 		Alive:          aliveCells,
 	}
-
+	c.events <- report
+	// Make sure that the Io has finished any output before exiting.
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
+	c.events <- StateChange{turn, Quitting}
+
+	// Close the channel to stop the SDL goroutine gracefully. Removing may cause deadlock.
 	close(c.events)
 }
