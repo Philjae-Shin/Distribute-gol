@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/rpc"
-	"strconv"
 	"time"
+
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
@@ -38,7 +38,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		world[i] = make([]uint8, p.ImageWidth)
 	}
 
-	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
+	filename := fmt.Sprintf("%vx%v", p.ImageWidth, p.ImageHeight)
 
 	c.ioCommand <- ioInput
 	c.ioFilename <- filename
@@ -78,22 +78,75 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 	processingDone := make(chan bool)
+	paused := false
 
 	// 키 입력 처리 고루틴
 	go func() {
 		for {
 			select {
 			case key := <-keyPresses:
-				if key == 'q' {
-					// 서버에 중지 요청
-					stopRequest := stubs.StopRequest{}
-					stopResponse := new(stubs.StopResponse)
-					err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
+				switch key {
+				case 's':
+					// 현재 상태를 가져와서 저장
+					getWorldRequest := stubs.GetWorldRequest{}
+					getWorldResponse := new(stubs.GetWorldResponse)
+					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 					if err != nil {
-						log.Println("Error calling StopProcessing:", err)
+						log.Println("Error calling GetWorld:", err)
+					} else {
+						worldSnapshot := getWorldResponse.World
+						turn := getWorldResponse.CompletedTurns
+						handleOutput(p, c, worldSnapshot, turn)
+					}
+				case 'q':
+					// 프로그램 종료
+					done <- true
+					return
+				case 'k':
+					// 서버 종료 요청 및 프로그램 종료
+					shutdownRequest := stubs.ShutdownRequest{}
+					shutdownResponse := new(stubs.ShutdownResponse)
+					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
+					if err != nil {
+						log.Println("Error calling Shutdown:", err)
+					}
+					// 현재 상태 저장
+					getWorldRequest := stubs.GetWorldRequest{}
+					getWorldResponse := new(stubs.GetWorldResponse)
+					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+					if err != nil {
+						log.Println("Error calling GetWorld:", err)
+					} else {
+						worldSnapshot := getWorldResponse.World
+						turn := getWorldResponse.CompletedTurns
+						handleOutput(p, c, worldSnapshot, turn)
 					}
 					done <- true
 					return
+				case 'p':
+					if !paused {
+						// 일시 중지 요청
+						pauseRequest := stubs.PauseRequest{}
+						pauseResponse := new(stubs.PauseResponse)
+						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
+						if err != nil {
+							log.Println("Error calling Pause:", err)
+						} else {
+							fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
+							paused = true
+						}
+					} else {
+						// 재개 요청
+						resumeRequest := stubs.ResumeRequest{}
+						resumeResponse := new(stubs.ResumeResponse)
+						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
+						if err != nil {
+							log.Println("Error calling Resume:", err)
+						} else {
+							fmt.Println("Continuing")
+							paused = false
+						}
+					}
 				}
 			}
 		}
@@ -177,9 +230,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			CompletedTurns: turn,
 			Alive:          aliveCells,
 		}
-
-		c.ioCommand <- ioCheckIdle
-		<-c.ioIdle
 
 		c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
 	}

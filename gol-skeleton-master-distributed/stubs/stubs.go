@@ -5,6 +5,9 @@ const (
 	GetAliveCells  = "GolEngine.GetAliveCells"
 	StopProcessing = "GolEngine.StopProcessing"
 	GetWorld       = "GolEngine.GetWorld"
+	Pause          = "GolEngine.Pause"
+	Resume         = "GolEngine.Resume"
+	Shutdown       = "GolEngine.Shutdown"
 )
 
 type EngineRequest struct {
@@ -37,3 +40,17 @@ type GetWorldResponse struct {
 	CompletedTurns int
 	Processing     bool
 }
+
+type PauseRequest struct{}
+
+type PauseResponse struct {
+	Turn int
+}
+
+type ResumeRequest struct{}
+
+type ResumeResponse struct{}
+
+type ShutdownRequest struct{}
+
+type ShutdownResponse struct{}

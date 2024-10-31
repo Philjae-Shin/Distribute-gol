@@ -19,7 +19,11 @@ type GolEngine struct {
 	totalTurns int
 	stop       bool
 	processing bool
+	paused     bool
+	shutdown   bool
 }
+
+var cond = sync.NewCond(&sync.Mutex{})
 
 func mod(a, b int) int {
 	return (a%b + b) % b
@@ -55,15 +59,24 @@ func (g *GolEngine) Process(req stubs.EngineRequest, res *stubs.EngineResponse) 
 	g.totalTurns = req.Turns
 	g.stop = false
 	g.processing = true
+	g.paused = false
+	g.shutdown = false
 	g.mu.Unlock()
 
 	go func() {
 		for t := 0; t < g.totalTurns; t++ {
 			g.mu.Lock()
-			if g.stop {
+			if g.stop || g.shutdown {
 				g.processing = false
 				g.mu.Unlock()
 				break
+			}
+			for g.paused {
+				cond.L.Lock()
+				g.mu.Unlock()
+				cond.Wait()
+				cond.L.Unlock()
+				g.mu.Lock()
 			}
 			g.mu.Unlock()
 
@@ -104,36 +117,36 @@ func (g *GolEngine) Process(req stubs.EngineRequest, res *stubs.EngineResponse) 
 	return nil
 }
 
-func (g *GolEngine) GetAliveCells(req stubs.AliveCellsCountRequest, res *stubs.AliveCellsCountResponse) error {
-	g.mu.Lock()
-	count := 0
-	for y := 0; y < g.height; y++ {
-		for x := 0; x < g.width; x++ {
-			if g.world[y][x] == 255 {
-				count++
-			}
-		}
-	}
-	res.CellsCount = count
-	res.CompletedTurns = g.turn
-	g.mu.Unlock()
-	return nil
-}
-
-func (g *GolEngine) StopProcessing(req stubs.StopRequest, res *stubs.StopResponse) error {
-	g.mu.Lock()
-	g.stop = true
-	g.mu.Unlock()
-	return nil
-}
-
-func (g *GolEngine) GetWorld(req stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
+func (g *GolEngine) Pause(req stubs.PauseRequest, res *stubs.PauseResponse) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if !g.processing || g.paused {
+		return nil
+	}
+	g.paused = true
+	res.Turn = g.turn
+	return nil
+}
 
-	res.World = g.world
-	res.CompletedTurns = g.turn
-	res.Processing = g.processing
+func (g *GolEngine) Resume(req stubs.ResumeRequest, res *stubs.ResumeResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.processing || !g.paused {
+		return nil
+	}
+	g.paused = false
+	cond.Broadcast()
+	return nil
+}
+
+func (g *GolEngine) Shutdown(req stubs.ShutdownRequest, res *stubs.ShutdownResponse) error {
+	g.mu.Lock()
+	g.shutdown = true
+	g.stop = true
+	g.processing = false
+	g.paused = false
+	cond.Broadcast()
+	g.mu.Unlock()
 	return nil
 }
 
