@@ -22,7 +22,11 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-var client *rpc.Client
+const Save int = 0
+const Quit int = 1
+const Pause int = 2
+const unPause int = 3
+const Kill int = 4
 
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
 	paused := false
@@ -31,12 +35,15 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 
 		switch input {
 		case 's':
-			client.Call("", stubs.JobRequest{Job: stubs.Save}, new(stubs.Response))
+			action <- Save
+			w := <-world
+			turn := <-t
 			go handleOutput(p, c, w, turn)
 
 		case 'q':
-			action <- stubs.Quit
-			client.Call("", stubs.JobRequest{Job: stubs.Save}, new(stubs.Response))
+			action <- Quit
+			w := <-world
+			turn := <-t
 			go handleOutput(p, c, w, turn)
 
 			newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
@@ -46,14 +53,14 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 			c.events <- FinalTurnComplete{CompletedTurns: turn}
 		case 'p':
 			if paused {
-				action <- stubs.UnPause
+				action <- unPause
 				turn := <-t
 				paused = false
 				newState := StateChange{CompletedTurns: turn, NewState: State(Executing)}
 				fmt.Println(newState.String())
 				c.events <- newState
 			} else {
-				action <- stubs.Pause
+				action <- Pause
 				turn := <-t
 				paused = true
 				newState := StateChange{CompletedTurns: turn, NewState: State(Paused)}
@@ -62,6 +69,14 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 			}
 
 		case 'k':
+			action <- Kill
+			w := <-world
+			turn := <-t
+			go handleOutput(p, c, w, turn)
+			newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
+			fmt.Println(newState.String())
+			c.events <- newState
+			c.events <- FinalTurnComplete{CompletedTurns: turn}
 		}
 
 	}
@@ -83,8 +98,35 @@ func calculateAliveCells(p Params, world [][]byte) (int, []util.Cell) {
 	return count, aliveCells
 }
 
-func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
+func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
+	c.ioCommand <- 0
+	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
+	c.ioFilename <- outFilename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+}
+
+/*func makeCall(client *rpc.Client, message string) {
+	request := stubs.Request{Message: message}
+	response := new(stubs.Response)
+	client.Call(stubs.ReverseHandler, request, response)
+	fmt.Println("Responded: " + response.Message)
+}*/
+
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
+	// TODO: Create a 2D slice to store the world.
+	world := make([][]uint8, p.ImageHeight)
+	for i := range world {
+		world[i] = make([]uint8, p.ImageWidth)
+	}
+
 	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
+
+	// Commands IO to read the initial file, giving the filename via the channel.
 	c.ioCommand <- 1
 	c.ioFilename <- filename
 	for y := 0; y < p.ImageHeight; y++ {
@@ -99,36 +141,12 @@ func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
 			}
 		}
 	}
-	return world
-}
 
-func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
-	c.ioCommand <- 0
-	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
-	c.ioFilename <- outFilename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- world[y][x]
-		}
-	}
-}
-
-// distributor divides the work between workers and interacts with other goroutines.
-func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
-	world := make([][]uint8, p.ImageHeight)
-	prevWorld := make([][]uint8, p.ImageHeight)
-	for i := range world {
-		world[i] = make([]uint8, p.ImageWidth)
-		prevWorld[i] = make([]uint8, p.ImageWidth)
-	}
-
-	// Commands IO to read the initial file, giving the filename via the channel.
-	world = handleInput(p, c, world)
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
-	//pause := false
+	// pause := false
 	quit := false
 	//waitToUnpause := make(chan bool)
 	go func() {
@@ -138,7 +156,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				case <-done:
 					return
 				case <-ticker.C:
-					aliveCount, _ := calculateAliveCells(p, prevWorld)
+					aliveCount, _ := calculateAliveCells(p, world)
 					aliveReport := AliveCellsCount{
 						CompletedTurns: turn,
 						CellsCount:     aliveCount,
@@ -151,11 +169,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 
-	turnChan := make(chan int)
-	worldChan := make(chan [][]uint8)
-	action := make(chan int)
-	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
-
 	//server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 	flag.Parse()
 	client, err := rpc.Dial("tcp", "127.0.0.1:8030")
@@ -164,16 +177,49 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	defer client.Close()
 
-	//makeCall(client, t)
-	request := stubs.Request{World: world,
-		Turns:       p.Turns,
-		ImageWidth:  p.ImageWidth,
-		ImageHeight: p.ImageHeight}
-	response := new(stubs.Response)
-	client.Call(stubs.ProcessTurnsHandler, request, response)
+	turnChan := make(chan int)
+	worldChan := make(chan [][]uint8)
+	action := make(chan int)
 
-	world = response.World
-	turn = response.TurnsDone
+	go handleKeyPress(p, c, keyPresses, worldChan, turnChan, action)
+	go func() {
+		for {
+			select {
+			case command := <-action:
+				switch command {
+				case Pause:
+					turnChan <- turn
+				case unPause:
+					turnChan <- turn
+				case Quit:
+					worldChan <- world
+					turnChan <- turn
+				case Save:
+					worldChan <- world
+					turnChan <- turn
+				case Kill:
+					worldChan <- world
+					turnChan <- turn
+					client.Go(stubs.KillingHandler, stubs.KillRequest{Kill: 0}, new(stubs.Response), nil)
+
+				}
+			}
+		}
+	}()
+
+	for t := 0; t < p.Turns; t++ {
+		turn = t
+		//makeCall(client, t)
+		request := stubs.Request{World: world,
+			Turns:       p.Turns,
+			ImageWidth:  p.ImageWidth,
+			ImageHeight: p.ImageHeight}
+		response := new(stubs.Response)
+		client.Call(stubs.ProcessTurnsHandler, request, response)
+
+		world = response.World
+		// turn = response.TurnsDone
+	}
 
 	ticker.Stop()
 	done <- true

@@ -2,11 +2,7 @@ package stubs
 
 var ProcessTurnsHandler = "GolOperations.Process"
 var OperationsHandler = "GolOperations.Operations"
-
-const Save int = 0
-const Quit int = 1
-const Pause int = 2
-const UnPause int = 3
+var KillingHandler = "GolOperations.ListenToQuit"
 
 type Response struct {
 	World     [][]uint8
@@ -20,6 +16,6 @@ type Request struct {
 	ImageHeight int
 }
 
-type JobRequest struct {
-	Job int
+type KillRequest struct {
+	Kill int
 }
