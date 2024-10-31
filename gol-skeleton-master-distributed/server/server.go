@@ -1,3 +1,4 @@
+// server.go
 package main
 
 import (
@@ -46,7 +47,7 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 	return count
 }
 
-func (g *GolEngine) Process(req stubs.EngineRequest, res *stubs.EngineResponse) error {
+func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse) error {
 	g.mu.Lock()
 	if g.processing {
 		g.mu.Unlock()
@@ -149,6 +150,8 @@ func (g *GolEngine) Shutdown(req stubs.ShutdownRequest, res *stubs.ShutdownRespo
 	g.mu.Unlock()
 	return nil
 }
+
+// 기존의 GetAliveCells, StopProcessing, GetWorld 메서드는 그대로 둡니다.
 
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
