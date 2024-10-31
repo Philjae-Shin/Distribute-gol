@@ -30,6 +30,12 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	}
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
+
+	// 이벤트 전송
+	c.events <- ImageOutputComplete{
+		CompletedTurns: t,
+		Filename:       outFilename,
+	}
 }
 
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
@@ -55,13 +61,13 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}
 
-	client, err := rpc.Dial("tcp", "34.204.100.63:8030")
+	client, err := rpc.Dial("tcp", "YOUR_GOL_ENGINE_IP:8030")
 	if err != nil {
 		log.Fatal("Failed connecting to Gol Engine:", err)
 	}
 	defer client.Close()
 
-	request := stubs.EngineRequest{
+	request := &stubs.EngineRequest{
 		World:       world,
 		ImageWidth:  p.ImageWidth,
 		ImageHeight: p.ImageHeight,
@@ -88,7 +94,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				switch key {
 				case 's':
 					// 현재 상태를 가져와서 저장
-					getWorldRequest := stubs.GetWorldRequest{}
+					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 					if err != nil {
@@ -104,14 +110,14 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					return
 				case 'k':
 					// 서버 종료 요청 및 프로그램 종료
-					shutdownRequest := stubs.ShutdownRequest{}
+					shutdownRequest := &stubs.ShutdownRequest{}
 					shutdownResponse := new(stubs.ShutdownResponse)
 					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
 					if err != nil {
 						log.Println("Error calling Shutdown:", err)
 					}
 					// 현재 상태 저장
-					getWorldRequest := stubs.GetWorldRequest{}
+					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 					if err != nil {
@@ -126,7 +132,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				case 'p':
 					if !paused {
 						// 일시 중지 요청
-						pauseRequest := stubs.PauseRequest{}
+						pauseRequest := &stubs.PauseRequest{}
 						pauseResponse := new(stubs.PauseResponse)
 						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
 						if err != nil {
@@ -134,10 +140,14 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						} else {
 							fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
 							paused = true
+							c.events <- StateChange{
+								CompletedTurns: pauseResponse.Turn,
+								NewState:       Paused,
+							}
 						}
 					} else {
 						// 재개 요청
-						resumeRequest := stubs.ResumeRequest{}
+						resumeRequest := &stubs.ResumeRequest{}
 						resumeResponse := new(stubs.ResumeResponse)
 						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
 						if err != nil {
@@ -145,6 +155,15 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						} else {
 							fmt.Println("Continuing")
 							paused = false
+							getWorldRequest := &stubs.GetWorldRequest{}
+							getWorldResponse := new(stubs.GetWorldResponse)
+							err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+							if err == nil {
+								c.events <- StateChange{
+									CompletedTurns: getWorldResponse.CompletedTurns,
+									NewState:       Executing,
+								}
+							}
 						}
 					}
 				}
@@ -158,7 +177,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			select {
 			case <-ticker.C:
 				// 서버에서 살아있는 셀 수 가져오기
-				countRequest := stubs.AliveCellsCountRequest{}
+				countRequest := &stubs.AliveCellsCountRequest{}
 				countResponse := new(stubs.AliveCellsCountResponse)
 				err := client.Call(stubs.GetAliveCells, countRequest, countResponse)
 				if err != nil {
@@ -184,7 +203,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		// 시뮬레이션이 완료될 때까지 대기
 		for {
 			time.Sleep(1 * time.Second)
-			getWorldRequest := stubs.GetWorldRequest{}
+			getWorldRequest := &stubs.GetWorldRequest{}
 			getWorldResponse := new(stubs.GetWorldResponse)
 			err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 			if err != nil {
@@ -205,7 +224,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 
 	// 최종 세계 상태 가져오기
-	finalWorldRequest := stubs.GetWorldRequest{}
+	finalWorldRequest := &stubs.GetWorldRequest{}
 	finalWorldResponse := new(stubs.GetWorldResponse)
 	err = client.Call(stubs.GetWorld, finalWorldRequest, finalWorldResponse)
 	if err != nil {
@@ -231,7 +250,10 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			Alive:          aliveCells,
 		}
 
-		c.events <- StateChange{CompletedTurns: turn, NewState: Quitting}
+		c.events <- StateChange{
+			CompletedTurns: turn,
+			NewState:       Quitting,
+		}
 	}
 
 	close(c.events)

@@ -1,4 +1,3 @@
-// server.go
 package main
 
 import (
@@ -81,7 +80,7 @@ func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse)
 			}
 			g.mu.Unlock()
 
-			// Process one turn
+			// 한 턴 처리
 			newWorld := make([][]uint8, g.height)
 			for y := 0; y < g.height; y++ {
 				newWorld[y] = make([]uint8, g.width)
@@ -118,7 +117,7 @@ func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse)
 	return nil
 }
 
-func (g *GolEngine) Pause(req stubs.PauseRequest, res *stubs.PauseResponse) error {
+func (g *GolEngine) Pause(req *stubs.PauseRequest, res *stubs.PauseResponse) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.processing || g.paused {
@@ -129,7 +128,7 @@ func (g *GolEngine) Pause(req stubs.PauseRequest, res *stubs.PauseResponse) erro
 	return nil
 }
 
-func (g *GolEngine) Resume(req stubs.ResumeRequest, res *stubs.ResumeResponse) error {
+func (g *GolEngine) Resume(req *stubs.ResumeRequest, res *stubs.ResumeResponse) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if !g.processing || !g.paused {
@@ -140,7 +139,7 @@ func (g *GolEngine) Resume(req stubs.ResumeRequest, res *stubs.ResumeResponse) e
 	return nil
 }
 
-func (g *GolEngine) Shutdown(req stubs.ShutdownRequest, res *stubs.ShutdownResponse) error {
+func (g *GolEngine) Shutdown(req *stubs.ShutdownRequest, res *stubs.ShutdownResponse) error {
 	g.mu.Lock()
 	g.shutdown = true
 	g.stop = true
@@ -151,7 +150,38 @@ func (g *GolEngine) Shutdown(req stubs.ShutdownRequest, res *stubs.ShutdownRespo
 	return nil
 }
 
-// 기존의 GetAliveCells, StopProcessing, GetWorld 메서드는 그대로 둡니다.
+func (g *GolEngine) GetWorld(req *stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	res.World = g.world
+	res.CompletedTurns = g.turn
+	res.Processing = g.processing
+	return nil
+}
+
+func (g *GolEngine) GetAliveCells(req *stubs.AliveCellsCountRequest, res *stubs.AliveCellsCountResponse) error {
+	g.mu.Lock()
+	count := 0
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			if g.world[y][x] == 255 {
+				count++
+			}
+		}
+	}
+	res.CellsCount = count
+	res.CompletedTurns = g.turn
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolEngine) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse) error {
+	g.mu.Lock()
+	g.stop = true
+	g.mu.Unlock()
+	return nil
+}
 
 func main() {
 	pAddr := flag.String("port", "8030", "Port to listen on")
