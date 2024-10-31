@@ -70,9 +70,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	// 시뮬레이션 시작
 	err = client.Call(stubs.Process, request, response)
-	if err != nil {
-		log.Fatal("Error calling Gol Engine:", err)
-	}
+	//if err != nil {
+	//	log.Fatal("Error calling Gol Engine:", err)
+	//}
 
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
