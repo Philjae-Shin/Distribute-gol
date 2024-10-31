@@ -1,13 +1,14 @@
 package stubs
 
 const (
-	Process        = "GolEngine.Process"
-	GetAliveCells  = "GolEngine.GetAliveCells"
-	StopProcessing = "GolEngine.StopProcessing"
-	GetWorld       = "GolEngine.GetWorld"
-	Pause          = "GolEngine.Pause"
-	Resume         = "GolEngine.Resume"
-	Shutdown       = "GolEngine.Shutdown"
+	Process            = "Broker.Process"
+	GetAliveCells      = "Broker.GetAliveCells"
+	StopProcessing     = "Broker.StopProcessing"
+	GetWorld           = "Broker.GetWorld"
+	Pause              = "Broker.Pause"
+	Resume             = "Broker.Resume"
+	Shutdown           = "Broker.Shutdown"
+	CalculateNextState = "GolWorker.CalculateNextState"
 )
 
 type EngineRequest struct {
@@ -54,3 +55,15 @@ type ResumeResponse struct{}
 type ShutdownRequest struct{}
 
 type ShutdownResponse struct{}
+
+type WorkerRequest struct {
+	StartY      int
+	EndY        int
+	WorldSlice  [][]uint8
+	ImageWidth  int
+	ImageHeight int
+}
+
+type WorkerResponse struct {
+	WorldSlice [][]uint8
+}

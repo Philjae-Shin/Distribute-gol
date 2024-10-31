@@ -61,9 +61,10 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}
 
-	client, err := rpc.Dial("tcp", "34.204.100.63:8030")
+	//client, err := rpc.Dial("tcp", "localhost:8030") Connect to AWS instance
+	client, err := rpc.Dial("tcp", "localhost:8030") // Connect to Broker
 	if err != nil {
-		log.Fatal("Failed connecting to Gol Engine:", err)
+		log.Fatal("Failed connecting:", err)
 	}
 	defer client.Close()
 
@@ -78,7 +79,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// 시뮬레이션 시작
 	err = client.Call(stubs.Process, request, response)
 	if err != nil {
-		log.Fatal("Error calling Gol Engine:", err)
+		log.Fatal("Error calling Process:", err)
 	}
 
 	ticker := time.NewTicker(2 * time.Second)
