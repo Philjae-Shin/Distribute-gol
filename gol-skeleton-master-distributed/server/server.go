@@ -93,7 +93,7 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 	threads := 1
 
 	for t := 0; t < req.Turns; t++ {
-		cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
+		//cellFlip := make([]util.Cell, req.ImageHeight*req.ImageWidth)
 		//if pause {
 		//	<-waitToUnpause
 		//}
@@ -103,7 +103,8 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 				copy(req.PrevWorld[j], req.World[j])
 			}
 			if threads == 1 {
-				req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+				req.World, _ = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
+				//req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
 			}
 
 			/*for _, cell := range cellFlip {
@@ -125,7 +126,7 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 				continue
 			}
 		}
-		fmt.Println(cellFlip)
+		//fmt.Println(cellFlip)
 	}
 
 	res.World = req.World

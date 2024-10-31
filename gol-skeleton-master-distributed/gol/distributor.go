@@ -110,7 +110,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	//server := flag.String("server", "127.0.0.1:8030", "IP:port string to connect to as server")
 	flag.Parse()
-	client, err := rpc.Dial("tcp", "35.173.196.216:8030")
+	client, err := rpc.Dial("tcp", "98.83.6.217:8030")
 	if err != nil {
 		log.Fatal("Failed connecting GolEngine:", err)
 	}
