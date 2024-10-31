@@ -7,20 +7,10 @@ import (
 	"net"
 	"net/rpc"
 	"time"
+
 	"uk.ac.bris.cs/gameoflife/stubs"
 	"uk.ac.bris.cs/gameoflife/util"
 )
-
-// analogue to updateWorld function
-/** Super-Secret `reversing a string' method we can't allow clients to see. **/
-/*func ReverseString(s string, i int) string {
-	time.Sleep(time.Duration(rand.Intn(i)) * time.Second)
-	runes := []rune(s)
-	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-	return string(runes)
-}*/
 
 func mod(a, b int) int {
 	return (a%b + b) % b
@@ -126,9 +116,7 @@ func (s *GolOperations) Process(req stubs.Request, res *stubs.Response) (err err
 		}
 		if !pause && !quit {
 			turn = t
-			for j := range req.World {
-				copy(req.PrevWorld[j], req.World[j])
-			}
+
 			if threads == 1 {
 				req.World, _ = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)
 				//req.World, cellFlip = CalculateNextState(req.ImageHeight, req.ImageWidth, 0, req.ImageHeight, req.World)

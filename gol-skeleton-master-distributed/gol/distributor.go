@@ -7,6 +7,7 @@ import (
 	"net/rpc"
 	"strconv"
 	"time"
+
 	"uk.ac.bris.cs/gameoflife/stubs"
 
 	"uk.ac.bris.cs/gameoflife/util"
@@ -21,10 +22,7 @@ type distributorChannels struct {
 	ioInput    <-chan uint8
 }
 
-const Save int = 0
-const Quit int = 1
-const Pause int = 2
-const unPause int = 3
+var client *rpc.Client
 
 func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, world <-chan [][]uint8, t <-chan int, action chan int) {
 	paused := false
@@ -33,15 +31,12 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 
 		switch input {
 		case 's':
-			action <- Save
-			w := <-world
-			turn := <-t
+			client.Call("", stubs.JobRequest{Job: stubs.Save}, new(stubs.Response))
 			go handleOutput(p, c, w, turn)
 
 		case 'q':
-			action <- Quit
-			w := <-world
-			turn := <-t
+			action <- stubs.Quit
+			client.Call("", stubs.JobRequest{Job: stubs.Save}, new(stubs.Response))
 			go handleOutput(p, c, w, turn)
 
 			newState := StateChange{CompletedTurns: turn, NewState: State(Quitting)}
@@ -51,14 +46,14 @@ func handleKeyPress(p Params, c distributorChannels, keyPresses <-chan rune, wor
 			c.events <- FinalTurnComplete{CompletedTurns: turn}
 		case 'p':
 			if paused {
-				action <- unPause
+				action <- stubs.UnPause
 				turn := <-t
 				paused = false
 				newState := StateChange{CompletedTurns: turn, NewState: State(Executing)}
 				fmt.Println(newState.String())
 				c.events <- newState
 			} else {
-				action <- Pause
+				action <- stubs.Pause
 				turn := <-t
 				paused = true
 				newState := StateChange{CompletedTurns: turn, NewState: State(Paused)}
@@ -88,37 +83,8 @@ func calculateAliveCells(p Params, world [][]byte) (int, []util.Cell) {
 	return count, aliveCells
 }
 
-func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
-	c.ioCommand <- 0
-	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
-	c.ioFilename <- outFilename
-	for y := 0; y < p.ImageHeight; y++ {
-		for x := 0; x < p.ImageWidth; x++ {
-			c.ioOutput <- world[y][x]
-		}
-	}
-}
-
-/*func makeCall(client *rpc.Client, message string) {
-	request := stubs.Request{Message: message}
-	response := new(stubs.Response)
-	client.Call(stubs.ReverseHandler, request, response)
-	fmt.Println("Responded: " + response.Message)
-}*/
-
-// distributor divides the work between workers and interacts with other goroutines.
-func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
-	// TODO: Create a 2D slice to store the world.
-	world := make([][]uint8, p.ImageHeight)
-	prevWorld := make([][]uint8, p.ImageHeight)
-	for i := range world {
-		world[i] = make([]uint8, p.ImageWidth)
-		prevWorld[i] = make([]uint8, p.ImageWidth)
-	}
-
+func handleInput(p Params, c distributorChannels, world [][]uint8) [][]uint8 {
 	filename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth)
-
-	// Commands IO to read the initial file, giving the filename via the channel.
 	c.ioCommand <- 1
 	c.ioFilename <- filename
 	for y := 0; y < p.ImageHeight; y++ {
@@ -133,7 +99,31 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			}
 		}
 	}
+	return world
+}
 
+func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
+	c.ioCommand <- 0
+	outFilename := strconv.Itoa(p.ImageHeight) + "x" + strconv.Itoa(p.ImageWidth) + "x" + strconv.Itoa(t)
+	c.ioFilename <- outFilename
+	for y := 0; y < p.ImageHeight; y++ {
+		for x := 0; x < p.ImageWidth; x++ {
+			c.ioOutput <- world[y][x]
+		}
+	}
+}
+
+// distributor divides the work between workers and interacts with other goroutines.
+func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
+	world := make([][]uint8, p.ImageHeight)
+	prevWorld := make([][]uint8, p.ImageHeight)
+	for i := range world {
+		world[i] = make([]uint8, p.ImageWidth)
+		prevWorld[i] = make([]uint8, p.ImageWidth)
+	}
+
+	// Commands IO to read the initial file, giving the filename via the channel.
+	world = handleInput(p, c, world)
 	// TODO: Execute all turns of the Game of Life.
 	turn := 0
 	ticker := time.NewTicker(2 * time.Second)
@@ -176,7 +166,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	//makeCall(client, t)
 	request := stubs.Request{World: world,
-		PrevWorld:   prevWorld,
 		Turns:       p.Turns,
 		ImageWidth:  p.ImageWidth,
 		ImageHeight: p.ImageHeight}
