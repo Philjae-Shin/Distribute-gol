@@ -18,6 +18,7 @@ type GolEngine struct {
 	turn       int
 	totalTurns int
 	stop       bool
+	processing bool
 }
 
 func mod(a, b int) int {
@@ -43,49 +44,96 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 
 func (g *GolEngine) Process(req stubs.EngineRequest, res *stubs.EngineResponse) error {
 	g.mu.Lock()
+	if g.processing {
+		g.mu.Unlock()
+		return fmt.Errorf("Already processing")
+	}
 	g.world = req.World
 	g.height = req.ImageHeight
 	g.width = req.ImageWidth
 	g.turn = 0
 	g.totalTurns = req.Turns
 	g.stop = false
+	g.processing = true
 	g.mu.Unlock()
 
-	for t := 0; t < g.totalTurns; t++ {
-		g.mu.Lock()
-		if g.stop {
+	go func() {
+		for t := 0; t < g.totalTurns; t++ {
+			g.mu.Lock()
+			if g.stop {
+				g.processing = false
+				g.mu.Unlock()
+				break
+			}
 			g.mu.Unlock()
-			break
-		}
-		newWorld := make([][]uint8, g.height)
-		for y := 0; y < g.height; y++ {
-			newWorld[y] = make([]uint8, g.width)
-			for x := 0; x < g.width; x++ {
-				neighbours := calculateNeighbours(g.world, x, y, g.width, g.height)
-				if g.world[y][x] == 255 {
-					if neighbours == 2 || neighbours == 3 {
-						newWorld[y][x] = 255
+
+			// Process one turn
+			newWorld := make([][]uint8, g.height)
+			for y := 0; y < g.height; y++ {
+				newWorld[y] = make([]uint8, g.width)
+				for x := 0; x < g.width; x++ {
+					neighbours := calculateNeighbours(g.world, x, y, g.width, g.height)
+					if g.world[y][x] == 255 {
+						if neighbours == 2 || neighbours == 3 {
+							newWorld[y][x] = 255
+						} else {
+							newWorld[y][x] = 0
+						}
 					} else {
-						newWorld[y][x] = 0
-					}
-				} else {
-					if neighbours == 3 {
-						newWorld[y][x] = 255
-					} else {
-						newWorld[y][x] = 0
+						if neighbours == 3 {
+							newWorld[y][x] = 255
+						} else {
+							newWorld[y][x] = 0
+						}
 					}
 				}
 			}
+			g.mu.Lock()
+			g.world = newWorld
+			g.turn = t + 1
+			g.mu.Unlock()
 		}
-		g.world = newWorld
-		g.turn = t + 1
-		g.mu.Unlock()
-	}
 
+		g.mu.Lock()
+		g.processing = false
+		g.mu.Unlock()
+	}()
+
+	res.World = nil
+	res.CompletedTurns = 0
+	return nil
+}
+
+func (g *GolEngine) GetAliveCells(req stubs.AliveCellsCountRequest, res *stubs.AliveCellsCountResponse) error {
 	g.mu.Lock()
-	res.World = g.world
+	count := 0
+	for y := 0; y < g.height; y++ {
+		for x := 0; x < g.width; x++ {
+			if g.world[y][x] == 255 {
+				count++
+			}
+		}
+	}
+	res.CellsCount = count
 	res.CompletedTurns = g.turn
 	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolEngine) StopProcessing(req stubs.StopRequest, res *stubs.StopResponse) error {
+	g.mu.Lock()
+	g.stop = true
+	g.mu.Unlock()
+	return nil
+}
+
+func (g *GolEngine) GetWorld(req stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	res.World = g.world
+	res.CompletedTurns = g.turn
+	res.Processing = g.processing
 	return nil
 }
 

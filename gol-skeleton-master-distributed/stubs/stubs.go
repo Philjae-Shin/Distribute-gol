@@ -35,4 +35,5 @@ type GetWorldRequest struct{}
 type GetWorldResponse struct {
 	World          [][]uint8
 	CompletedTurns int
+	Processing     bool
 }
