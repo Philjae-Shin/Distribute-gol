@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/rpc"
 	"sync"
+	"time"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
@@ -49,8 +50,12 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse) error {
 	g.mu.Lock()
 	if g.processing {
+		// 이전 시뮬레이션 중지
+		g.stop = true
+		// 시뮬레이션 고루틴이 종료될 때까지 대기
 		g.mu.Unlock()
-		return fmt.Errorf("Already processing")
+		g.waitForProcessingToFinish()
+		g.mu.Lock()
 	}
 	g.world = req.World
 	g.height = req.ImageHeight
@@ -92,7 +97,7 @@ func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse)
 						return
 					}
 					g.mu.Unlock()
-					
+
 					neighbours := calculateNeighbours(g.world, x, y, g.width, g.height)
 					if g.world[y][x] == 255 {
 						if neighbours == 2 || neighbours == 3 {
@@ -123,6 +128,18 @@ func (g *GolEngine) Process(req *stubs.EngineRequest, res *stubs.EngineResponse)
 	res.World = nil
 	res.CompletedTurns = 0
 	return nil
+}
+
+func (g *GolEngine) waitForProcessingToFinish() {
+	// 현재 진행 중인 시뮬레이션이 종료될 때까지 대기
+	g.mu.Lock()
+	for g.processing {
+		g.mu.Unlock()
+		// 잠시 대기
+		time.Sleep(100 * time.Millisecond)
+		g.mu.Lock()
+	}
+	g.mu.Unlock()
 }
 
 func (g *GolEngine) Pause(req *stubs.PauseRequest, res *stubs.PauseResponse) error {

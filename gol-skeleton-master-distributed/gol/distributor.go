@@ -220,6 +220,12 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// 시뮬레이션 종료 또는 완료 대기
 	select {
 	case <-done:
+		stopRequest := &stubs.StopRequest{}
+		stopResponse := new(stubs.StopResponse)
+		err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
+		if err != nil {
+			log.Println("Error calling StopProcessing:", err)
+		}
 	case <-processingDone:
 	}
 
