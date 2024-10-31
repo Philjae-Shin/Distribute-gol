@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/rpc"
 	"strconv"
+	"sync"
 	"time"
 	"uk.ac.bris.cs/gameoflife/stubs"
 
@@ -86,24 +87,37 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 	//pause := false
-	quit := false
-	//waitToUnpause := make(chan bool)
+	//quit := false
+	//finished := false
+
+	var mu sync.Mutex
+
+	//action := make(chan int)
+
+	//go handleKeyPress(p, c, keyPresses, action)
+
+	c.events <- StateChange{CompletedTurns: turn, NewState: Executing}
+
+	// Start ticker for AliveCellsCount events
 	go func() {
 		for {
-			if !quit {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					aliveCount, _ := calculateAliveCells(p, prevWorld)
-					aliveReport := AliveCellsCount{
-						CompletedTurns: turn,
-						CellsCount:     aliveCount,
-					}
-					c.events <- aliveReport
-				}
-			} else {
+			select {
+			case <-done:
 				return
+			case <-ticker.C:
+				mu.Lock()
+				snapshot := make([][]uint8, p.ImageHeight)
+				for i := range prevWorld {
+					snapshot[i] = make([]uint8, p.ImageWidth)
+					copy(snapshot[i], prevWorld[i])
+				}
+				currentTurn := turn
+				mu.Unlock()
+				aliveCount, _ := calculateAliveCells(p, snapshot)
+				c.events <- AliveCellsCount{
+					CompletedTurns: currentTurn,
+					CellsCount:     aliveCount,
+				}
 			}
 		}
 	}()
