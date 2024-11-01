@@ -119,6 +119,8 @@ func (b *Broker) distributeWork() error {
 		newWorld[i] = make([]uint8, b.width)
 	}
 
+	errorsOccurred := false
+
 	for i := 0; i < numWorkers; i++ {
 		startY := i * rowsPerWorker
 		endY := startY + rowsPerWorker
@@ -159,6 +161,10 @@ func (b *Broker) distributeWork() error {
 
 	wg.Wait()
 	b.mu.Lock()
+	if errorsOccurred {
+		b.mu.Unlock()
+		return fmt.Errorf("Error occurred during worker communication")
+	}
 	b.world = newWorld
 	b.mu.Unlock()
 
