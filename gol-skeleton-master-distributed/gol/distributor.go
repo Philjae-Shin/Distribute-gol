@@ -108,7 +108,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				case 'q':
 					// 프로그램 종료
 					done <- true
-					processingDone <- true
 					return
 				case 'k':
 					// 서버 종료 요청 및 프로그램 종료
@@ -130,7 +129,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						handleOutput(p, c, worldSnapshot, turn)
 					}
 					done <- true
-					processingDone <- true
 					return
 				case 'p':
 					if !paused {
@@ -205,7 +203,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	go func() {
 		// 시뮬레이션이 완료될 때까지 대기
 		for {
-			time.Sleep(100 * time.Second)
+			time.Sleep(1 * time.Second)
 			getWorldRequest := &stubs.GetWorldRequest{}
 			getWorldResponse := new(stubs.GetWorldResponse)
 			err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
