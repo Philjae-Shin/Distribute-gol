@@ -244,9 +244,9 @@ func (b *Broker) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse)
 
 func main() {
 	workerAddrs := []string{
-		"3.81.85.114:8031",
-		"54.87.162.225:8032",
-		"34.207.197.90:8033",
+		"54.146.0.56:8031",
+		"34.207.136.206:8032",
+		"3.91.236.42:8033",
 		// Add more worker addresses as needed
 	}
 
