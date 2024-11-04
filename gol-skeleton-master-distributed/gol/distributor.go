@@ -66,14 +66,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	defer client.Close()
 
-	request := &stubs.EngineRequest{
-		World:       world,
-		ImageWidth:  p.ImageWidth,
-		ImageHeight: p.ImageHeight,
-		Turns:       p.Turns,
-	}
-	response := new(stubs.EngineResponse)
-
 	done := make(chan bool)
 	processingDone := make(chan bool)
 	paused := false
@@ -85,6 +77,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			case key := <-keyPresses:
 				switch key {
 				case 's':
+					// Save current state
 					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
@@ -95,20 +88,19 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						turn := getWorldResponse.CompletedTurns
 						handleOutput(p, c, worldSnapshot, turn)
 					}
-					c.events <- ImageOutputComplete{
-						CompletedTurns: getWorldResponse.CompletedTurns,
-						Filename:       fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, getWorldResponse.CompletedTurns),
-					}
 				case 'q':
+					// Quit the program
 					done <- true
 					return
 				case 'k':
+					// Shutdown server and quit
 					shutdownRequest := &stubs.ShutdownRequest{}
 					shutdownResponse := new(stubs.ShutdownResponse)
 					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
 					if err != nil {
 						log.Println("Error calling Shutdown:", err)
 					}
+					// Save current state
 					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
@@ -123,6 +115,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					return
 				case 'p':
 					if !paused {
+						// Send pause request
 						pauseRequest := &stubs.PauseRequest{}
 						pauseResponse := new(stubs.PauseResponse)
 						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
@@ -137,6 +130,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 							}
 						}
 					} else {
+						// Send resume request
 						resumeRequest := &stubs.ResumeRequest{}
 						resumeResponse := new(stubs.ResumeResponse)
 						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
@@ -163,10 +157,24 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 
 	// Start the simulation in a separate goroutine
 	go func() {
-		err = client.Call(stubs.Process, request, response)
+		// Send initial StateChange event to Executing
+		c.events <- StateChange{
+			CompletedTurns: 0,
+			NewState:       Executing,
+		}
+		// Start the simulation
+		request := &stubs.EngineRequest{
+			World:       world,
+			ImageWidth:  p.ImageWidth,
+			ImageHeight: p.ImageHeight,
+			Turns:       p.Turns,
+		}
+		response := new(stubs.EngineResponse)
+		err := client.Call(stubs.Process, request, response)
 		if err != nil {
 			log.Fatal("Error calling Process:", err)
 		}
+		processingDone <- true
 	}()
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -183,13 +191,11 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 				if err != nil {
 					return
 				} else {
-					if countResponse.CompletedTurns > 0 {
-						aliveReport := AliveCellsCount{
-							CompletedTurns: countResponse.CompletedTurns,
-							CellsCount:     countResponse.CellsCount,
-						}
-						c.events <- aliveReport
+					aliveReport := AliveCellsCount{
+						CompletedTurns: countResponse.CompletedTurns,
+						CellsCount:     countResponse.CellsCount,
 					}
+					c.events <- aliveReport
 				}
 			case <-done:
 				return
@@ -200,17 +206,17 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// Wait for simulation completion or user exit
 	go func() {
 		for {
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 			getWorldRequest := &stubs.GetWorldRequest{}
 			getWorldResponse := new(stubs.GetWorldResponse)
 			err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 			if err != nil {
 				log.Println("Error calling GetWorld:", err)
-			} else {
-				if !getWorldResponse.Processing {
-					processingDone <- true
-					return
-				}
+				continue
+			}
+			if !getWorldResponse.Processing {
+				processingDone <- true
+				return
 			}
 		}
 	}()
@@ -218,6 +224,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	// Wait for either completion or user-triggered exit
 	select {
 	case <-done:
+		// User requested exit
 		stopRequest := &stubs.StopRequest{}
 		stopResponse := new(stubs.StopResponse)
 		err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
@@ -225,6 +232,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 			log.Println("Error calling StopProcessing:", err)
 		}
 	case <-processingDone:
+		// Simulation completed
 	}
 
 	// Final world state retrieval
