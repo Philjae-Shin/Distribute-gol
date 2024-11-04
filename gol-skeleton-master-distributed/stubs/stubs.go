@@ -9,6 +9,7 @@ const (
 	Resume             = "Broker.Resume"
 	Shutdown           = "Broker.Shutdown"
 	CalculateNextState = "GolWorker.CalculateNextState"
+	Heartbeat          = "GolWorker.Heartbeat" // Added for heartbeat mechanism
 )
 
 type EngineRequest struct {
@@ -67,3 +68,7 @@ type WorkerRequest struct {
 type WorkerResponse struct {
 	WorldSlice [][]uint8
 }
+
+type HeartbeatRequest struct{} // Added for heartbeat mechanism
+
+type HeartbeatResponse struct{}

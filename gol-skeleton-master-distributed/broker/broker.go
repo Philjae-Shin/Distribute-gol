@@ -12,9 +12,10 @@ import (
 )
 
 type WorkerInfo struct {
-	client *rpc.Client
-	addr   string
-	alive  bool
+	client  *rpc.Client
+	addr    string
+	alive   bool
+	retries int
 }
 
 type Broker struct {
@@ -41,18 +42,19 @@ func (b *Broker) connectToWorkers(workerAddrs []string) error {
 		client, err := rpc.Dial("tcp", addr)
 		if err != nil {
 			log.Printf("Failed to connect to worker at %s: %v", addr, err)
-			// Mark worker as dead
 			b.workers[i] = &WorkerInfo{
-				client: nil,
-				addr:   addr,
-				alive:  false,
+				client:  nil,
+				addr:    addr,
+				alive:   false,
+				retries: 0,
 			}
 			continue
 		}
 		b.workers[i] = &WorkerInfo{
-			client: client,
-			addr:   addr,
-			alive:  true,
+			client:  client,
+			addr:    addr,
+			alive:   true,
+			retries: 0,
 		}
 	}
 
@@ -68,18 +70,48 @@ func (b *Broker) monitorWorkers() {
 		case <-ticker.C:
 			b.mu.Lock()
 			for _, worker := range b.workers {
-				if !worker.alive {
+				if worker.alive {
+					go b.checkWorkerHeartbeat(worker)
+				} else {
 					// Try to reconnect
 					client, err := rpc.Dial("tcp", worker.addr)
 					if err == nil {
 						worker.client = client
 						worker.alive = true
+						worker.retries = 0
 						log.Printf("Reconnected to worker at %s", worker.addr)
 					}
 				}
 			}
 			b.mu.Unlock()
 		}
+	}
+}
+
+func (b *Broker) checkWorkerHeartbeat(worker *WorkerInfo) {
+	b.mu.Lock()
+	client := worker.client
+	b.mu.Unlock()
+
+	request := &stubs.HeartbeatRequest{}
+	response := &stubs.HeartbeatResponse{}
+
+	err := client.Call(stubs.Heartbeat, request, response)
+	if err != nil {
+		b.mu.Lock()
+		worker.retries++
+		if worker.retries >= 3 {
+			log.Printf("Worker at %s failed after %d retries.", worker.addr, worker.retries)
+			worker.alive = false
+			if worker.client != nil {
+				worker.client.Close()
+			}
+		}
+		b.mu.Unlock()
+	} else {
+		b.mu.Lock()
+		worker.retries = 0
+		b.mu.Unlock()
 	}
 }
 
@@ -120,7 +152,6 @@ func (b *Broker) runSimulation() {
 			break
 		}
 		for b.paused {
-			// Wait until resumed
 			b.mu.Unlock()
 			time.Sleep(100 * time.Millisecond)
 			b.mu.Lock()
@@ -214,9 +245,11 @@ func (b *Broker) distributeWork() error {
 				return
 			}
 			// Copy the results back into newWorld
+			b.mu.Lock()
 			for y := request.StartY; y < request.EndY; y++ {
 				copy(newWorld[y], response.WorldSlice[y-request.StartY])
 			}
+			b.mu.Unlock()
 		}(worker, request, workerInfo)
 
 		startY = endY
@@ -396,9 +429,9 @@ func (b *Broker) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse)
 
 func main() {
 	workerAddrs := []string{
-		"35.168.15.199:8031",
-		"35.175.224.236:8032",
-		"34.207.107.211:8033",
+		"18.212.136.191:8031",
+		"18.234.25.205:8032",
+		"3.89.210.9:8033",
 		// Add more worker addresses as needed
 	}
 
