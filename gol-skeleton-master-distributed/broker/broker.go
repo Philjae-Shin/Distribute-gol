@@ -7,6 +7,7 @@ import (
 	"net/rpc"
 	"sync"
 	"time"
+	"uk.ac.bris.cs/gameoflife/util"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
@@ -19,17 +20,19 @@ type WorkerInfo struct {
 }
 
 type Broker struct {
-	mu         sync.Mutex
-	workers    []*WorkerInfo
-	world      [][]uint8
-	height     int
-	width      int
-	turn       int
-	totalTurns int
-	stop       bool
-	processing bool
-	paused     bool
-	shutdown   bool
+	mu               sync.Mutex
+	workers          []*WorkerInfo
+	world            [][]uint8
+	height           int
+	width            int
+	turn             int
+	totalTurns       int
+	stop             bool
+	processing       bool
+	paused           bool
+	shutdown         bool
+	controllerAddr   string
+	controllerClient *rpc.Client
 }
 
 func (b *Broker) connectToWorkers(workerAddrs []string) error {
@@ -117,30 +120,58 @@ func (b *Broker) checkWorkerHeartbeat(worker *WorkerInfo) {
 
 func (b *Broker) Process(req *stubs.EngineRequest, res *stubs.EngineResponse) error {
 	b.mu.Lock()
-	if b.processing {
-		// Previous simulation is running; stop it
-		b.stop = true
-		// Wait for it to finish
-		b.mu.Unlock()
-		b.waitForProcessingToFinish()
-		b.mu.Lock()
-	}
-	b.world = req.World
-	b.height = req.ImageHeight
-	b.width = req.ImageWidth
-	b.turn = 0
-	b.totalTurns = req.Turns
-	b.stop = false
-	b.processing = true
-	b.paused = false
-	b.shutdown = false
+	// Existing code to initialize the simulation...
+
+	b.controllerAddr = req.ControllerAddr
 	b.mu.Unlock()
+
+	// Initialize the controller client
+	controllerClient, err := rpc.Dial("tcp", b.controllerAddr)
+	if err != nil {
+		log.Fatal("Failed connecting to controller:", err)
+	}
+	b.controllerClient = controllerClient
 
 	go b.runSimulation()
 
 	res.World = nil
 	res.CompletedTurns = 0
 	return nil
+}
+
+func (b *Broker) sendCellsFlippedEvent(turn int, cells []util.Cell) {
+	request := &stubs.ReportCellsFlippedRequest{
+		CompletedTurns: turn,
+		Cells:          cells,
+	}
+	response := new(stubs.ReportCellsFlippedResponse)
+	err := b.controllerClient.Call(stubs.ReportCellsFlipped, request, response)
+	if err != nil {
+		log.Println("Error sending CellsFlipped event:", err)
+	}
+}
+
+func (b *Broker) sendTurnCompleteEvent(turn int) {
+	request := &stubs.ReportTurnCompleteRequest{
+		CompletedTurns: turn,
+	}
+	response := new(stubs.ReportTurnCompleteResponse)
+	err := b.controllerClient.Call(stubs.ReportTurnComplete, request, response)
+	if err != nil {
+		log.Println("Error sending TurnComplete event:", err)
+	}
+}
+
+func (b *Broker) sendStateChangeEvent(turn int, newState stubs.State) {
+	request := &stubs.ReportStateChangeRequest{
+		CompletedTurns: turn,
+		NewState:       newState,
+	}
+	response := new(stubs.ReportStateChangeResponse)
+	err := b.controllerClient.Call(stubs.ReportStateChange, request, response)
+	if err != nil {
+		log.Println("Error sending StateChange event:", err)
+	}
 }
 
 func (b *Broker) runSimulation() {
@@ -158,12 +189,19 @@ func (b *Broker) runSimulation() {
 		}
 		b.mu.Unlock()
 
-		// Distribute work to workers
-		err := b.distributeWork()
+		// Collect flipped cells for the current turn
+		flippedCellsAll := []util.Cell{}
+		err := b.distributeWork(&flippedCellsAll)
 		if err != nil {
 			log.Println("Error distributing work:", err)
 			return
 		}
+
+		// Send the CellsFlipped event
+		b.sendCellsFlippedEvent(t+1, flippedCellsAll)
+
+		// Send TurnComplete event
+		b.sendTurnCompleteEvent(t + 1)
 
 		b.mu.Lock()
 		b.turn = t + 1
@@ -175,7 +213,7 @@ func (b *Broker) runSimulation() {
 	b.mu.Unlock()
 }
 
-func (b *Broker) distributeWork() error {
+func (b *Broker) distributeWork(flippedCellsAll *[]util.Cell) error {
 	b.mu.Lock()
 	// Filter out dead workers
 	activeWorkers := []*WorkerInfo{}
@@ -250,6 +288,9 @@ func (b *Broker) distributeWork() error {
 				copy(newWorld[y], response.WorldSlice[y-request.StartY])
 			}
 			b.mu.Unlock()
+			flippedCellsLock.Lock()
+			*flippedCellsAll = append(*flippedCellsAll, response.FlippedCells...)
+			flippedCellsLock.Unlock()
 		}(worker, request, workerInfo)
 
 		startY = endY
@@ -380,6 +421,7 @@ func (b *Broker) Pause(req *stubs.PauseRequest, res *stubs.PauseResponse) error 
 	}
 	b.paused = true
 	res.Turn = b.turn
+	b.sendStateChangeEvent(b.turn, stubs.Paused)
 	return nil
 }
 
@@ -390,6 +432,7 @@ func (b *Broker) Resume(req *stubs.ResumeRequest, res *stubs.ResumeResponse) err
 		return nil
 	}
 	b.paused = false
+	b.sendStateChangeEvent(b.turn, stubs.Executing)
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/rpc"
 	"sync"
+	"uk.ac.bris.cs/gameoflife/util"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
@@ -48,6 +49,8 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 	width := req.ImageWidth
 
 	newWorldSlice := make([][]uint8, height-2)
+	flippedCells := []util.Cell{}
+
 	for y := 1; y < height-1; y++ {
 		newRow := make([]uint8, width)
 		for x := 0; x < width; x++ {
@@ -65,11 +68,16 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 					newRow[x] = 0
 				}
 			}
+			// Check if the cell state has changed
+			if newRow[x] != worldSlice[y][x] {
+				flippedCells = append(flippedCells, util.Cell{X: x, Y: req.StartY + y - 1})
+			}
 		}
 		newWorldSlice[y-1] = newRow
 	}
 
 	res.WorldSlice = newWorldSlice
+	res.FlippedCells = flippedCells
 	return nil
 }
 
