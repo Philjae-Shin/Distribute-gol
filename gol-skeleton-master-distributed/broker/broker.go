@@ -11,37 +11,76 @@ import (
 	"uk.ac.bris.cs/gameoflife/stubs"
 )
 
+type WorkerInfo struct {
+	client *rpc.Client
+	addr   string
+	alive  bool
+}
+
 type Broker struct {
-	mu          sync.Mutex
-	workers     []*rpc.Client
-	workerAddrs []string
-	world       [][]uint8
-	height      int
-	width       int
-	turn        int
-	totalTurns  int
-	stop        bool
-	processing  bool
-	paused      bool
-	shutdown    bool
+	mu         sync.Mutex
+	workers    []*WorkerInfo
+	world      [][]uint8
+	height     int
+	width      int
+	turn       int
+	totalTurns int
+	stop       bool
+	processing bool
+	paused     bool
+	shutdown   bool
 }
 
 func (b *Broker) connectToWorkers(workerAddrs []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.workerAddrs = workerAddrs
-	b.workers = make([]*rpc.Client, len(workerAddrs))
+	b.workers = make([]*WorkerInfo, len(workerAddrs))
 
 	for i, addr := range workerAddrs {
 		client, err := rpc.Dial("tcp", addr)
 		if err != nil {
-			return fmt.Errorf("failed to connect to worker at %s: %v", addr, err)
+			log.Printf("Failed to connect to worker at %s: %v", addr, err)
+			// Mark worker as dead
+			b.workers[i] = &WorkerInfo{
+				client: nil,
+				addr:   addr,
+				alive:  false,
+			}
+			continue
 		}
-		b.workers[i] = client
+		b.workers[i] = &WorkerInfo{
+			client: client,
+			addr:   addr,
+			alive:  true,
+		}
 	}
 
 	return nil
+}
+
+func (b *Broker) monitorWorkers() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			b.mu.Lock()
+			for _, worker := range b.workers {
+				if !worker.alive {
+					// Try to reconnect
+					client, err := rpc.Dial("tcp", worker.addr)
+					if err == nil {
+						worker.client = client
+						worker.alive = true
+						log.Printf("Reconnected to worker at %s", worker.addr)
+					}
+				}
+			}
+			b.mu.Unlock()
+		}
+	}
 }
 
 func (b *Broker) Process(req *stubs.EngineRequest, res *stubs.EngineResponse) error {
@@ -107,53 +146,80 @@ func (b *Broker) runSimulation() {
 
 func (b *Broker) distributeWork() error {
 	b.mu.Lock()
+	// Filter out dead workers
+	activeWorkers := []*WorkerInfo{}
+	for _, worker := range b.workers {
+		if worker.alive {
+			activeWorkers = append(activeWorkers, worker)
+		}
+	}
+
+	if len(activeWorkers) == 0 {
+		b.mu.Unlock()
+		return fmt.Errorf("no active workers available")
+	}
+
 	// Divide world into slices
-	numWorkers := len(b.workers)
+	numWorkers := len(activeWorkers)
 	rowsPerWorker := b.height / numWorkers
 	remainder := b.height % numWorkers
 
 	var wg sync.WaitGroup
-	wg.Add(numWorkers)
 	newWorld := make([][]uint8, b.height)
 	for i := 0; i < b.height; i++ {
 		newWorld[i] = make([]uint8, b.width)
 	}
 
-	for i := 0; i < numWorkers; i++ {
-		startY := i * rowsPerWorker
-		endY := startY + rowsPerWorker
-		if i == numWorkers-1 {
-			endY += remainder
+	startY := 0
+	for i, workerInfo := range activeWorkers {
+		extraRow := 0
+		if i < remainder {
+			extraRow = 1
 		}
-		workerWorld := make([][]uint8, endY-startY+2) // Include ghost rows
+		endY := startY + rowsPerWorker + extraRow
+
+		// Prepare world slice with ghost rows
+		worldSlice := make([][]uint8, endY-startY+2)
 		for y := startY - 1; y <= endY; y++ {
 			row := make([]uint8, b.width)
 			copy(row, b.world[(y+b.height)%b.height])
-			workerWorld[y-startY+1] = row
+			worldSlice[y-startY+1] = row
 		}
 
 		request := stubs.WorkerRequest{
 			StartY:      startY,
 			EndY:        endY,
-			WorldSlice:  workerWorld,
+			WorldSlice:  worldSlice,
 			ImageWidth:  b.width,
 			ImageHeight: b.height,
 		}
 
-		worker := b.workers[i]
-		go func(worker *rpc.Client, request stubs.WorkerRequest, index int) {
+		worker := workerInfo.client
+		wg.Add(1)
+		go func(worker *rpc.Client, request stubs.WorkerRequest, workerInfo *WorkerInfo) {
 			defer wg.Done()
 			response := new(stubs.WorkerResponse)
 			err := worker.Call(stubs.CalculateNextState, request, response)
 			if err != nil {
-				log.Printf("Error calling worker %d: %v", index, err)
+				log.Printf("Error calling worker %s: %v", workerInfo.addr, err)
+				// Mark worker as dead
+				b.mu.Lock()
+				workerInfo.alive = false
+				if workerInfo.client != nil {
+					workerInfo.client.Close()
+				}
+				b.mu.Unlock()
+				// Redistribute work
+				b.redistributeWork(request, newWorld)
 				return
 			}
 			// Copy the results back into newWorld
 			for y := request.StartY; y < request.EndY; y++ {
 				copy(newWorld[y], response.WorldSlice[y-request.StartY])
 			}
-		}(worker, request, i)
+		}(worker, request, workerInfo)
+
+		startY = endY
 	}
 	b.mu.Unlock()
 
@@ -163,6 +229,94 @@ func (b *Broker) distributeWork() error {
 	b.mu.Unlock()
 
 	return nil
+}
+
+func (b *Broker) redistributeWork(failedRequest stubs.WorkerRequest, newWorld [][]uint8) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Find active workers
+	activeWorkers := []*WorkerInfo{}
+	for _, worker := range b.workers {
+		if worker.alive {
+			activeWorkers = append(activeWorkers, worker)
+		}
+	}
+
+	if len(activeWorkers) == 0 {
+		log.Println("No active workers available to redistribute work")
+		return
+	}
+
+	// Split the failed work among active workers
+	numWorkers := len(activeWorkers)
+	startY := failedRequest.StartY
+	endY := failedRequest.EndY
+	totalRows := endY - startY
+	rowsPerWorker := totalRows / numWorkers
+	remainder := totalRows % numWorkers
+
+	var wg sync.WaitGroup
+	for i, workerInfo := range activeWorkers {
+		extraRow := 0
+		if i < remainder {
+			extraRow = 1
+		}
+		workerStartY := startY + i*(rowsPerWorker) + min(i, remainder)
+		workerEndY := workerStartY + rowsPerWorker + extraRow
+
+		// Prepare world slice with ghost rows
+		worldSlice := make([][]uint8, workerEndY-workerStartY+2)
+		for y := workerStartY - 1; y <= workerEndY; y++ {
+			row := make([]uint8, b.width)
+			copy(row, b.world[(y+b.height)%b.height])
+			worldSlice[y-workerStartY+1] = row
+		}
+
+		request := stubs.WorkerRequest{
+			StartY:      workerStartY,
+			EndY:        workerEndY,
+			WorldSlice:  worldSlice,
+			ImageWidth:  b.width,
+			ImageHeight: b.height,
+		}
+
+		worker := workerInfo.client
+		wg.Add(1)
+		go func(worker *rpc.Client, request stubs.WorkerRequest, workerInfo *WorkerInfo) {
+			defer wg.Done()
+			response := new(stubs.WorkerResponse)
+			err := worker.Call(stubs.CalculateNextState, request, response)
+			if err != nil {
+				log.Printf("Error calling worker %s during redistribution: %v", workerInfo.addr, err)
+				// Mark worker as dead
+				b.mu.Lock()
+				workerInfo.alive = false
+				if workerInfo.client != nil {
+					workerInfo.client.Close()
+				}
+				b.mu.Unlock()
+				// Recursively redistribute work
+				b.redistributeWork(request, newWorld)
+				return
+			}
+			// Copy the results back into the newWorld
+			b.mu.Lock()
+			for y := request.StartY; y < request.EndY; y++ {
+				copy(newWorld[y], response.WorldSlice[y-request.StartY])
+			}
+			b.mu.Unlock()
+		}(worker, request, workerInfo)
+	}
+
+	wg.Wait()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (b *Broker) waitForProcessingToFinish() {
@@ -175,8 +329,6 @@ func (b *Broker) waitForProcessingToFinish() {
 	}
 	b.mu.Unlock()
 }
-
-// Implement other methods: GetWorld, Pause, Resume, Shutdown, GetAliveCells, StopProcessing
 
 func (b *Broker) GetWorld(req *stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
 	b.mu.Lock()
@@ -244,9 +396,9 @@ func (b *Broker) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse)
 
 func main() {
 	workerAddrs := []string{
-		"18.212.136.191:8031",
-		"18.234.25.205:8032",
-		"3.89.210.9:8033",
+		"35.168.15.199:8031",
+		"35.175.224.236:8032",
+		"34.207.107.211:8033",
 		// Add more worker addresses as needed
 	}
 
@@ -255,6 +407,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to workers:", err)
 	}
+
+	// Start monitoring workers
+	go broker.monitorWorkers()
 
 	rpc.Register(broker)
 	listener, err := net.Listen("tcp", ":8030") // Broker listens on port 8030
