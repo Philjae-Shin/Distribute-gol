@@ -31,7 +31,6 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
-	// 이벤트 전송
 	c.events <- ImageOutputComplete{
 		CompletedTurns: t,
 		Filename:       outFilename,
@@ -61,7 +60,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}
 
-	//client, err := rpc.Dial("tcp", "localhost:8030") Connect to AWS instance
 	client, err := rpc.Dial("tcp", "18.232.75.211:8030") // Connect to Broker
 	if err != nil {
 		log.Fatal("Failed connecting:", err)
@@ -76,25 +74,17 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	response := new(stubs.EngineResponse)
 
-	// 시뮬레이션 시작
-	err = client.Call(stubs.Process, request, response)
-	if err != nil {
-		log.Fatal("Error calling Process:", err)
-	}
-
-	ticker := time.NewTicker(2 * time.Second)
 	done := make(chan bool)
 	processingDone := make(chan bool)
 	paused := false
 
-	// 키 입력 처리 고루틴
+	// Start the keypress handler before starting the simulation
 	go func() {
 		for {
 			select {
 			case key := <-keyPresses:
 				switch key {
 				case 's':
-					// 현재 상태를 가져와서 저장
 					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
@@ -105,19 +95,20 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						turn := getWorldResponse.CompletedTurns
 						handleOutput(p, c, worldSnapshot, turn)
 					}
+					c.events <- ImageOutputComplete{
+						CompletedTurns: getWorldResponse.CompletedTurns,
+						Filename:       fmt.Sprintf("%vx%vx%v", p.ImageWidth, p.ImageHeight, getWorldResponse.CompletedTurns),
+					}
 				case 'q':
-					// 프로그램 종료
 					done <- true
 					return
 				case 'k':
-					// 서버 종료 요청 및 프로그램 종료
 					shutdownRequest := &stubs.ShutdownRequest{}
 					shutdownResponse := new(stubs.ShutdownResponse)
 					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
 					if err != nil {
 						log.Println("Error calling Shutdown:", err)
 					}
-					// 현재 상태 저장
 					getWorldRequest := &stubs.GetWorldRequest{}
 					getWorldResponse := new(stubs.GetWorldResponse)
 					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
@@ -132,7 +123,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					return
 				case 'p':
 					if !paused {
-						// 일시 중지 요청
 						pauseRequest := &stubs.PauseRequest{}
 						pauseResponse := new(stubs.PauseResponse)
 						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
@@ -147,7 +137,6 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 							}
 						}
 					} else {
-						// 재개 요청
 						resumeRequest := &stubs.ResumeRequest{}
 						resumeResponse := new(stubs.ResumeResponse)
 						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
@@ -172,12 +161,22 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 
-	// 2초마다 살아있는 셀 수 가져오기
+	// Start the simulation in a separate goroutine
+	go func() {
+		err = client.Call(stubs.Process, request, response)
+		if err != nil {
+			log.Fatal("Error calling Process:", err)
+		}
+	}()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	// Alive cells count ticker
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				// 서버에서 살아있는 셀 수 가져오기
 				countRequest := &stubs.AliveCellsCountRequest{}
 				countResponse := new(stubs.AliveCellsCountResponse)
 				err := client.Call(stubs.GetAliveCells, countRequest, countResponse)
@@ -193,15 +192,13 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 					}
 				}
 			case <-done:
-				ticker.Stop()
 				return
 			}
 		}
 	}()
 
-	// 시뮬레이션 완료 대기
+	// Wait for simulation completion or user exit
 	go func() {
-		// 시뮬레이션이 완료될 때까지 대기
 		for {
 			time.Sleep(1 * time.Second)
 			getWorldRequest := &stubs.GetWorldRequest{}
@@ -218,7 +215,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 
-	// 시뮬레이션 종료 또는 완료 대기
+	// Wait for either completion or user-triggered exit
 	select {
 	case <-done:
 		stopRequest := &stubs.StopRequest{}
@@ -230,7 +227,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	case <-processingDone:
 	}
 
-	// 최종 세계 상태 가져오기
+	// Final world state retrieval
 	finalWorldRequest := &stubs.GetWorldRequest{}
 	finalWorldResponse := new(stubs.GetWorldResponse)
 	err = client.Call(stubs.GetWorld, finalWorldRequest, finalWorldResponse)
@@ -240,7 +237,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		world = finalWorldResponse.World
 		turn := finalWorldResponse.CompletedTurns
 
-		// 최종 결과 처리
+		// Final results processing
 		aliveCells := []util.Cell{}
 		for y := 0; y < p.ImageHeight; y++ {
 			for x := 0; x < p.ImageWidth; x++ {
