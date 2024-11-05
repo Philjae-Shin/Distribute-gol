@@ -1,15 +1,16 @@
 package stubs
 
-const (
-	Process            = "Broker.Process"
-	GetAliveCells      = "Broker.GetAliveCells"
-	StopProcessing     = "Broker.StopProcessing"
-	GetWorld           = "Broker.GetWorld"
-	Pause              = "Broker.Pause"
-	Resume             = "Broker.Resume"
-	Shutdown           = "Broker.Shutdown"
-	CalculateNextState = "GolWorker.CalculateNextState"
-)
+import "uk.ac.bris.cs/gameoflife/util"
+
+var Process = "Broker.Process"
+var GetAliveCells = "Broker.GetAliveCells"
+var StopProcessing = "Broker.StopProcessing"
+var GetWorld = "Broker.GetWorld"
+var Pause = "Broker.Pause"
+var Resume = "Broker.Resume"
+var Shutdown = "Broker.Shutdown"
+var CalculateNextState = "GolWorker.CalculateNextState"
+var GetFlippedCells = "Broker.GetFlippedCells"
 
 type EngineRequest struct {
 	World       [][]uint8
@@ -65,5 +66,13 @@ type WorkerRequest struct {
 }
 
 type WorkerResponse struct {
-	WorldSlice [][]uint8
+	WorldSlice   [][]uint8
+	FlippedCells []util.Cell
+}
+
+type GetFlippedCellsRequest struct{}
+
+type GetFlippedCellsResponse struct {
+	CompletedTurns int
+	FlippedCells   []util.Cell
 }
