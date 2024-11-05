@@ -202,8 +202,6 @@ func (b *Broker) GetFlippedCells(req *stubs.GetFlippedCellsRequest, res *stubs.G
 	return nil
 }
 
-// ... (Rest of the methods remain unchanged)
-
 func main() {
 	workerAddrs := []string{
 		"3.89.244.38:8031",

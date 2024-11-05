@@ -199,6 +199,37 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}()
 
+	go func() {
+		for {
+			time.Sleep(100 * time.Millisecond)
+			getFlippedCellsRequest := &stubs.GetFlippedCellsRequest{}
+			getFlippedCellsResponse := new(stubs.GetFlippedCellsResponse)
+			err := client.Call(stubs.GetFlippedCells, getFlippedCellsRequest, getFlippedCellsResponse)
+			if err != nil {
+				log.Println("Error calling GetFlippedCells:", err)
+			} else {
+				if len(getFlippedCellsResponse.FlippedCells) > 0 {
+					c.events <- CellsFlipped{
+						CompletedTurns: getFlippedCellsResponse.CompletedTurns,
+						Cells:          getFlippedCellsResponse.FlippedCells,
+					}
+					c.events <- TurnComplete{
+						CompletedTurns: getFlippedCellsResponse.CompletedTurns,
+					}
+				}
+				getWorldRequest := &stubs.GetWorldRequest{}
+				getWorldResponse := new(stubs.GetWorldResponse)
+				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+				if err == nil {
+					if !getWorldResponse.Processing {
+						processingDone <- true
+						return
+					}
+				}
+			}
+		}
+	}()
+
 	// 시뮬레이션 완료 대기
 	go func() {
 		// 시뮬레이션이 완료될 때까지 대기
@@ -244,11 +275,22 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		aliveCells := []util.Cell{}
 		for y := 0; y < p.ImageHeight; y++ {
 			for x := 0; x < p.ImageWidth; x++ {
+				num := <-c.ioInput
+				world[y][x] = num
 				if world[y][x] == 255 {
 					aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 				}
 			}
 		}
+
+		// Send CellsFlipped event for initial alive cells
+		if len(aliveCells) > 0 {
+			c.events <- CellsFlipped{
+				CompletedTurns: 0,
+				Cells:          aliveCells,
+			}
+		}
+		c.events <- TurnComplete{CompletedTurns: 0}
 
 		handleOutput(p, c, world, turn)
 
