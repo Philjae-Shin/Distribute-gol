@@ -206,9 +206,9 @@ func (b *Broker) GetFlippedCells(req *stubs.GetFlippedCellsRequest, res *stubs.G
 
 func main() {
 	workerAddrs := []string{
-		"18.234.39.153:8031",
-		"18.209.99.22:8032",
-		"54.92.154.31:8033",
+		"3.89.244.38:8031",
+		"100.27.232.29:8032",
+		"3.88.218.20:8033",
 		// Add more worker addresses as needed
 	}
 
