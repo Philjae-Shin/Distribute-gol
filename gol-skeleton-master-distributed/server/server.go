@@ -231,10 +231,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	subscribe := stubs.SubscribeRequest{
-		WorkerAddress: *pIp + ":" + *pAddr,
-		//WorkerAddress: getOutboundIP() + ":" + "8050",
-	}
+	
 	turnChan = make(chan int)
 	turnInternal = make(chan int)
 	worldChan = make(chan [][]uint8)
