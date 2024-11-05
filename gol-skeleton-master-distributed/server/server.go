@@ -1,3 +1,4 @@
+// server/server.go
 package main
 
 import (
@@ -12,15 +13,25 @@ import (
 )
 
 type GolWorker struct {
-	mu sync.Mutex
+	mu                sync.Mutex
+	prevWorkerAddr    string
+	nextWorkerAddr    string
+	prevWorkerClient  *rpc.Client
+	nextWorkerClient  *rpc.Client
+	topHaloRowChan    chan []uint8
+	bottomHaloRowChan chan []uint8
+	worldSlice        [][]uint8
+	startY            int
+	endY              int
+	width             int
+	height            int
+	turns             int
 }
 
-// 모듈러 연산 함수
 func mod(a, b int) int {
 	return (a%b + b) % b
 }
 
-// 인접한 살아있는 셀의 수를 계산하는 함수
 func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 	count := 0
 	for deltaY := -1; deltaY <= 1; deltaY++ {
@@ -29,7 +40,10 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 				continue
 			}
 			nx := mod(x+deltaX, width)
-			ny := mod(y+deltaY, height)
+			ny := y + deltaY
+			if ny < 0 || ny >= height {
+				continue
+			}
 			if world[ny][nx] == 255 {
 				count++
 			}
@@ -38,39 +52,131 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 	return count
 }
 
-// CalculateNextState 메서드 구현
-func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.WorkerResponse) error {
+func (g *GolWorker) SetNeighbors(req *stubs.NeighborRequest, res *stubs.NeighborResponse) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	worldSlice := req.WorldSlice
-	height := len(worldSlice)
-	width := req.ImageWidth
+	g.prevWorkerAddr = req.PrevWorkerAddr
+	g.nextWorkerAddr = req.NextWorkerAddr
 
-	// 고스트 행 제외한 새로운 슬라이스 생성
-	newWorldSlice := make([][]uint8, height-2)
-	for y := 1; y < height-1; y++ {
-		newRow := make([]uint8, width)
-		for x := 0; x < width; x++ {
-			neighbours := calculateNeighbours(worldSlice, x, y, width, height)
-			if worldSlice[y][x] == 255 {
-				if neighbours == 2 || neighbours == 3 {
-					newRow[x] = 255
-				} else {
-					newRow[x] = 0
-				}
-			} else {
-				if neighbours == 3 {
-					newRow[x] = 255
-				} else {
-					newRow[x] = 0
-				}
-			}
+	if g.prevWorkerAddr != "" {
+		prevClient, err := rpc.Dial("tcp", g.prevWorkerAddr)
+		if err != nil {
+			return fmt.Errorf("failed to connect to previous worker at %s: %v", g.prevWorkerAddr, err)
 		}
-		newWorldSlice[y-1] = newRow // 인덱스 조정 이거 확ㄴㅇ인해봐야함
+		g.prevWorkerClient = prevClient
 	}
 
-	res.WorldSlice = newWorldSlice
+	if g.nextWorkerAddr != "" {
+		nextClient, err := rpc.Dial("tcp", g.nextWorkerAddr)
+		if err != nil {
+			return fmt.Errorf("failed to connect to next worker at %s: %v", g.nextWorkerAddr, err)
+		}
+		g.nextWorkerClient = nextClient
+	}
+
+	return nil
+}
+
+func (g *GolWorker) StartWorker(req *stubs.StartWorkerRequest, res *stubs.StartWorkerResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	g.startY = req.StartY
+	g.endY = req.EndY
+	g.worldSlice = req.WorldSlice
+	g.width = req.ImageWidth
+	g.height = len(g.worldSlice)
+	g.turns = req.Turns
+
+	// Initialize channels
+	g.topHaloRowChan = make(chan []uint8)
+	g.bottomHaloRowChan = make(chan []uint8)
+
+	go g.runWorker()
+	return nil
+}
+
+func (g *GolWorker) runWorker() {
+	for t := 0; t < g.turns; t++ {
+		// Send own top row to previous worker
+		if g.prevWorkerClient != nil {
+			req := stubs.HaloDataRequest{Row: g.worldSlice[0]}
+			res := new(stubs.HaloDataResponse)
+			go g.prevWorkerClient.Call(stubs.ReceiveBottomHalo, req, res)
+		}
+
+		// Send own bottom row to next worker
+		if g.nextWorkerClient != nil {
+			req := stubs.HaloDataRequest{Row: g.worldSlice[len(g.worldSlice)-1]}
+			res := new(stubs.HaloDataResponse)
+			go g.nextWorkerClient.Call(stubs.ReceiveTopHalo, req, res)
+		}
+
+		// Receive halo rows from neighbors
+		var topHaloRow, bottomHaloRow []uint8
+
+		if g.prevWorkerClient != nil {
+			bottomHaloRow = <-g.bottomHaloRowChan
+		} else {
+			// For edge workers, wrap around
+			bottomHaloRow = g.worldSlice[len(g.worldSlice)-1]
+		}
+
+		if g.nextWorkerClient != nil {
+			topHaloRow = <-g.topHaloRowChan
+		} else {
+			// For edge workers, wrap around
+			topHaloRow = g.worldSlice[0]
+		}
+
+		// Process the iteration
+		extendedWorld := make([][]uint8, len(g.worldSlice)+2)
+		copy(extendedWorld[1:len(extendedWorld)-1], g.worldSlice)
+		extendedWorld[0] = topHaloRow
+		extendedWorld[len(extendedWorld)-1] = bottomHaloRow
+
+		newWorldSlice := make([][]uint8, len(g.worldSlice))
+		for y := 1; y < len(extendedWorld)-1; y++ {
+			newRow := make([]uint8, g.width)
+			for x := 0; x < g.width; x++ {
+				neighbours := calculateNeighbours(extendedWorld, x, y, g.width, len(extendedWorld))
+				if extendedWorld[y][x] == 255 {
+					if neighbours == 2 || neighbours == 3 {
+						newRow[x] = 255
+					} else {
+						newRow[x] = 0
+					}
+				} else {
+					if neighbours == 3 {
+						newRow[x] = 255
+					} else {
+						newRow[x] = 0
+					}
+				}
+			}
+			newWorldSlice[y-1] = newRow
+		}
+		g.mu.Lock()
+		g.worldSlice = newWorldSlice
+		g.mu.Unlock()
+	}
+}
+
+func (g *GolWorker) ReceiveTopHalo(req *stubs.HaloDataRequest, res *stubs.HaloDataResponse) error {
+	g.topHaloRowChan <- req.Row
+	return nil
+}
+
+func (g *GolWorker) ReceiveBottomHalo(req *stubs.HaloDataRequest, res *stubs.HaloDataResponse) error {
+	g.bottomHaloRowChan <- req.Row
+	return nil
+}
+
+func (g *GolWorker) GetFinalSlice(req *stubs.GetFinalSliceRequest, res *stubs.GetFinalSliceResponse) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	res.WorldSlice = g.worldSlice
 	return nil
 }
 
@@ -79,7 +185,7 @@ func main() {
 	flag.Parse()
 
 	golWorker := new(GolWorker)
-	rpc.RegisterName("GolWorker", golWorker) // 워커로 등록
+	rpc.RegisterName("GolWorker", golWorker)
 
 	listener, err := net.Listen("tcp", ":"+*pAddr)
 	if err != nil {

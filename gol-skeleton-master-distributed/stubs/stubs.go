@@ -9,6 +9,13 @@ const (
 	Resume             = "Broker.Resume"
 	Shutdown           = "Broker.Shutdown"
 	CalculateNextState = "GolWorker.CalculateNextState"
+
+	// SetNeighbors Halo exchange
+	SetNeighbors      = "GolWorker.SetNeighbors"
+	StartWorker       = "GolWorker.StartWorker"
+	GetFinalSlice     = "GolWorker.GetFinalSlice"
+	ReceiveTopHalo    = "GolWorker.ReceiveTopHalo"
+	ReceiveBottomHalo = "GolWorker.ReceiveBottomHalo"
 )
 
 type EngineRequest struct {
@@ -67,3 +74,34 @@ type WorkerRequest struct {
 type WorkerResponse struct {
 	WorldSlice [][]uint8
 }
+
+// NeighborRequest New types for neighbor setup and halo exchange
+type NeighborRequest struct {
+	PrevWorkerAddr string
+	NextWorkerAddr string
+}
+
+type NeighborResponse struct{}
+
+type StartWorkerRequest struct {
+	StartY      int
+	EndY        int
+	WorldSlice  [][]uint8
+	ImageWidth  int
+	ImageHeight int
+	Turns       int
+}
+
+type StartWorkerResponse struct{}
+
+type GetFinalSliceRequest struct{}
+
+type GetFinalSliceResponse struct {
+	WorldSlice [][]uint8
+}
+
+type HaloDataRequest struct {
+	Row []uint8
+}
+
+type HaloDataResponse struct{}

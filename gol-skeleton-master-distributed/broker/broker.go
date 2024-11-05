@@ -26,6 +26,7 @@ type Broker struct {
 	shutdown    bool
 }
 
+// After connecting to workers, set up neighbor information
 func (b *Broker) connectToWorkers(workerAddrs []string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -39,6 +40,24 @@ func (b *Broker) connectToWorkers(workerAddrs []string) error {
 			return fmt.Errorf("failed to connect to worker at %s: %v", addr, err)
 		}
 		b.workers[i] = client
+	}
+
+	// Send neighbor information to each worker
+	numWorkers := len(b.workers)
+	for i := 0; i < numWorkers; i++ {
+		prevWorkerAddr := workerAddrs[(i-1+numWorkers)%numWorkers]
+		nextWorkerAddr := workerAddrs[(i+1)%numWorkers]
+
+		neighborReq := stubs.NeighborRequest{
+			PrevWorkerAddr: prevWorkerAddr,
+			NextWorkerAddr: nextWorkerAddr,
+		}
+
+		neighborRes := new(stubs.NeighborResponse)
+		err := b.workers[i].Call(stubs.SetNeighbors, neighborReq, neighborRes)
+		if err != nil {
+			return fmt.Errorf("failed to set neighbors for worker at %s: %v", workerAddrs[i], err)
+		}
 	}
 
 	return nil
@@ -105,9 +124,9 @@ func (b *Broker) runSimulation() {
 	b.mu.Unlock()
 }
 
+// Distribute initial slices to workers and start processing
 func (b *Broker) distributeWork() error {
 	b.mu.Lock()
-	// Divide world into slices
 	numWorkers := len(b.workers)
 	rowsPerWorker := b.height / numWorkers
 	remainder := b.height % numWorkers
@@ -125,39 +144,49 @@ func (b *Broker) distributeWork() error {
 		if i == numWorkers-1 {
 			endY += remainder
 		}
-		workerWorld := make([][]uint8, endY-startY+2) // Include ghost rows
-		for y := startY - 1; y <= endY; y++ {
-			row := make([]uint8, b.width)
-			copy(row, b.world[(y+b.height)%b.height])
-			workerWorld[y-startY+1] = row
-		}
 
-		request := stubs.WorkerRequest{
+		workerSlice := make([][]uint8, endY-startY)
+		copy(workerSlice, b.world[startY:endY])
+
+		request := stubs.StartWorkerRequest{
 			StartY:      startY,
 			EndY:        endY,
-			WorldSlice:  workerWorld,
+			WorldSlice:  workerSlice,
 			ImageWidth:  b.width,
 			ImageHeight: b.height,
+			Turns:       b.totalTurns - b.turn,
 		}
 
 		worker := b.workers[i]
-		go func(worker *rpc.Client, request stubs.WorkerRequest, index int) {
+		go func(worker *rpc.Client, request stubs.StartWorkerRequest, index int) {
 			defer wg.Done()
-			response := new(stubs.WorkerResponse)
-			err := worker.Call(stubs.CalculateNextState, request, response)
+			response := new(stubs.StartWorkerResponse)
+			err := worker.Call(stubs.StartWorker, request, response)
 			if err != nil {
 				log.Printf("Error calling worker %d: %v", index, err)
 				return
 			}
-			// Copy the results back into newWorld
-			for y := request.StartY; y < request.EndY; y++ {
-				copy(newWorld[y], response.WorldSlice[y-request.StartY])
+
+			// Get final slice from worker
+			finalSliceRequest := stubs.GetFinalSliceRequest{}
+			finalSliceResponse := new(stubs.GetFinalSliceResponse)
+			err = worker.Call(stubs.GetFinalSlice, finalSliceRequest, finalSliceResponse)
+			if err != nil {
+				log.Printf("Error getting final slice from worker %d: %v", index, err)
+				return
 			}
+
+			b.mu.Lock()
+			for y := request.StartY; y < request.EndY; y++ {
+				copy(newWorld[y], finalSliceResponse.WorldSlice[y-request.StartY])
+			}
+			b.mu.Unlock()
 		}(worker, request, i)
 	}
 	b.mu.Unlock()
 
 	wg.Wait()
+
 	b.mu.Lock()
 	b.world = newWorld
 	b.mu.Unlock()
@@ -244,9 +273,9 @@ func (b *Broker) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse)
 
 func main() {
 	workerAddrs := []string{
-		"18.212.136.191:8031",
-		"18.234.25.205:8032",
-		"3.89.210.9:8033",
+		"54.80.93.54:8031",
+		"52.23.246.58:8032",
+		"184.72.194.55:8033",
 		// Add more worker addresses as needed
 	}
 
