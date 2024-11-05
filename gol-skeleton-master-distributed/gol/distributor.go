@@ -38,6 +38,16 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	}
 }
 
+// Pause 또는 Resume 요청 시 잠시 대기 추가
+func handlePauseResume(request interface{}, response interface{}, client *rpc.Client, method string) error {
+	err := client.Call(method, request, response)
+	if err == nil {
+		// Pause 또는 Resume 이벤트 발생 후 대기
+		time.Sleep(500 * time.Millisecond) // AWS latency 보정 대기 시간
+	}
+	return err
+}
+
 func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	world := make([][]uint8, p.ImageHeight)
 	for i := range world {
@@ -135,7 +145,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						// 일시 중지 요청
 						pauseRequest := &stubs.PauseRequest{}
 						pauseResponse := new(stubs.PauseResponse)
-						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
+
+						err := handlePauseResume(pauseRequest, pauseResponse, client, "Broker.Pause")
 						if err != nil {
 							log.Println("Error calling Pause:", err)
 						} else {
@@ -150,7 +161,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 						// 재개 요청
 						resumeRequest := &stubs.ResumeRequest{}
 						resumeResponse := new(stubs.ResumeResponse)
-						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
+
+						err := handlePauseResume(resumeRequest, resumeResponse, client, "Broker.Resume")
 						if err != nil {
 							log.Println("Error calling Resume:", err)
 						} else {
@@ -158,7 +170,9 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 							paused = false
 							getWorldRequest := &stubs.GetWorldRequest{}
 							getWorldResponse := new(stubs.GetWorldResponse)
-							err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+
+							// World 상태 업데이트
+							err = client.Call("Broker.GetWorld", getWorldRequest, getWorldResponse)
 							if err == nil {
 								c.events <- StateChange{
 									CompletedTurns: getWorldResponse.CompletedTurns,

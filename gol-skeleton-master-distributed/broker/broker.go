@@ -35,6 +35,17 @@ func (b *Broker) connectToWorkers(workerAddrs []string) error {
 
 	for i, addr := range workerAddrs {
 		client, err := rpc.Dial("tcp", addr)
+
+		// 연결 재시도 루프
+		for attempt := 1; attempt <= 5; attempt++ {
+			client, err = rpc.Dial("tcp", addr)
+			if err == nil {
+				break
+			}
+			log.Printf("Retrying connection to worker %s (attempt %d)", addr, attempt)
+			time.Sleep(2 * time.Second) // 재시도 대기 시간
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to connect to worker at %s: %v", addr, err)
 		}
