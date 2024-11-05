@@ -17,20 +17,20 @@ func BenchmarkGol(b *testing.B) {
 
 	for threads := 1; threads <= 16; threads++ {
 		b.Run(fmt.Sprintf("%d_workers", threads), func(b *testing.B) {
-			//traceParams := gol.Params{
-			//	Turns:       100,
-			//	Threads:     threads,
-			//	ImageWidth:  512,
-			//	ImageHeight: 512,
-			//}
-
-			//Benchmark for 5120x5120.pgm
 			traceParams := gol.Params{
 				Turns:       100,
 				Threads:     threads,
-				ImageWidth:  5120,
-				ImageHeight: 5120,
+				ImageWidth:  512,
+				ImageHeight: 512,
 			}
+
+			//Benchmark for 5120x5120.pgm
+			//traceParams := gol.Params{
+			//	Turns:       100,
+			//	Threads:     threads,
+			//	ImageWidth:  5120,
+			//	ImageHeight: 5120,
+			//}
 			events := make(chan gol.Event)
 			for i := 0; i < b.N; i++ {
 				go gol.Run(traceParams, events, nil)

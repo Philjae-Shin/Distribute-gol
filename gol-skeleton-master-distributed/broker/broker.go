@@ -176,8 +176,6 @@ func (b *Broker) waitForProcessingToFinish() {
 	b.mu.Unlock()
 }
 
-// Implement other methods: GetWorld, Pause, Resume, Shutdown, GetAliveCells, StopProcessing
-
 func (b *Broker) GetWorld(req *stubs.GetWorldRequest, res *stubs.GetWorldResponse) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

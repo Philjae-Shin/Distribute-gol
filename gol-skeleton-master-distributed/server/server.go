@@ -15,12 +15,10 @@ type GolWorker struct {
 	mu sync.Mutex
 }
 
-// 모듈러 연산 함수
 func mod(a, b int) int {
 	return (a%b + b) % b
 }
 
-// 인접한 살아있는 셀의 수를 계산하는 함수
 func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 	count := 0
 	for deltaY := -1; deltaY <= 1; deltaY++ {
@@ -38,7 +36,6 @@ func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
 	return count
 }
 
-// CalculateNextState 메서드 구현
 func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.WorkerResponse) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -47,7 +44,6 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 	height := len(worldSlice)
 	width := req.ImageWidth
 
-	// 고스트 행 제외한 새로운 슬라이스 생성
 	newWorldSlice := make([][]uint8, height-2)
 	for y := 1; y < height-1; y++ {
 		newRow := make([]uint8, width)
@@ -67,7 +63,7 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 				}
 			}
 		}
-		newWorldSlice[y-1] = newRow // 인덱스 조정 이거 확ㄴㅇ인해봐야함
+		newWorldSlice[y-1] = newRow
 	}
 
 	res.WorldSlice = newWorldSlice
