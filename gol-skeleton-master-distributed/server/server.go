@@ -231,7 +231,7 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-	
+
 	turnChan = make(chan int)
 	turnInternal = make(chan int)
 	worldChan = make(chan [][]uint8)
