@@ -86,6 +86,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	done := make(chan bool)
 	processingDone := make(chan bool)
 	paused := false
+	lastTurn := 0
 
 	// 키 입력 처리 고루틴
 	go func() {
@@ -161,7 +162,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 							err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 							if err == nil {
 								c.events <- StateChange{
-									CompletedTurns: getWorldResponse.CompletedTurns,
+									CompletedTurns: 0,
 									NewState:       Executing,
 								}
 							}
@@ -177,55 +178,41 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		for {
 			select {
 			case <-ticker.C:
-				// 서버에서 살아있는 셀 수 가져오기
-				countRequest := &stubs.AliveCellsCountRequest{}
-				countResponse := new(stubs.AliveCellsCountResponse)
-				err := client.Call(stubs.GetAliveCells, countRequest, countResponse)
+				getWorldRequest := &stubs.GetWorldRequest{}
+				getWorldResponse := new(stubs.GetWorldResponse)
+				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 				if err != nil {
+					log.Println("Error calling GetWorld:", err)
 					return
-				} else {
-					if countResponse.CompletedTurns > 0 {
-						aliveReport := AliveCellsCount{
-							CompletedTurns: countResponse.CompletedTurns,
-							CellsCount:     countResponse.CellsCount,
-						}
-						c.events <- aliveReport
+				}
+				if getWorldResponse.CompletedTurns > lastTurn {
+					// Turn has advanced
+					lastTurn = getWorldResponse.CompletedTurns
+					// Fetch updates
+					turnUpdatesRequest := &stubs.TurnUpdatesRequest{}
+					turnUpdatesResponse := new(stubs.TurnUpdatesResponse)
+					err = client.Call(stubs.GetTurnUpdates, turnUpdatesRequest, turnUpdatesResponse)
+					if err != nil {
+						log.Println("Error calling GetTurnUpdates:", err)
+						return
 					}
+					// Send CellsFlipped event
+					c.events <- CellsFlipped{
+						CompletedTurns: turnUpdatesResponse.CompletedTurns,
+						Cells:          turnUpdatesResponse.CellsFlipped,
+					}
+					// Send TurnComplete event
+					c.events <- TurnComplete{
+						CompletedTurns: turnUpdatesResponse.CompletedTurns,
+					}
+				}
+				if !getWorldResponse.Processing {
+					processingDone <- true
+					return
 				}
 			case <-done:
 				ticker.Stop()
 				return
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			time.Sleep(100 * time.Millisecond)
-			getFlippedCellsRequest := &stubs.GetFlippedCellsRequest{}
-			getFlippedCellsResponse := new(stubs.GetFlippedCellsResponse)
-			err := client.Call(stubs.GetFlippedCells, getFlippedCellsRequest, getFlippedCellsResponse)
-			if err != nil {
-				log.Println("Error calling GetFlippedCells:", err)
-			} else {
-				if len(getFlippedCellsResponse.FlippedCells) > 0 {
-					c.events <- CellsFlipped{
-						CompletedTurns: getFlippedCellsResponse.CompletedTurns,
-						Cells:          getFlippedCellsResponse.FlippedCells,
-					}
-					c.events <- TurnComplete{
-						CompletedTurns: getFlippedCellsResponse.CompletedTurns,
-					}
-				}
-				getWorldRequest := &stubs.GetWorldRequest{}
-				getWorldResponse := new(stubs.GetWorldResponse)
-				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-				if err == nil {
-					if !getWorldResponse.Processing {
-						processingDone <- true
-						return
-					}
-				}
 			}
 		}
 	}()
@@ -275,22 +262,11 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		aliveCells := []util.Cell{}
 		for y := 0; y < p.ImageHeight; y++ {
 			for x := 0; x < p.ImageWidth; x++ {
-				num := <-c.ioInput
-				world[y][x] = num
 				if world[y][x] == 255 {
 					aliveCells = append(aliveCells, util.Cell{X: x, Y: y})
 				}
 			}
 		}
-
-		// Send CellsFlipped event for initial alive cells
-		if len(aliveCells) > 0 {
-			c.events <- CellsFlipped{
-				CompletedTurns: 0,
-				Cells:          aliveCells,
-			}
-		}
-		c.events <- TurnComplete{CompletedTurns: 0}
 
 		handleOutput(p, c, world, turn)
 

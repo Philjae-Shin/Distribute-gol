@@ -26,7 +26,7 @@ type Broker struct {
 	processing   bool
 	paused       bool
 	shutdown     bool
-	flippedCells []util.Cell
+	cellsFlipped []util.Cell
 }
 
 func (b *Broker) connectToWorkers(workerAddrs []string) error {
@@ -117,7 +117,7 @@ func (b *Broker) distributeWork() error {
 		newWorld[i] = make([]uint8, b.width)
 	}
 
-	flippedCellsChan := make(chan []util.Cell, numWorkers)
+	b.cellsFlipped = []util.Cell{}
 
 	for i := 0; i < numWorkers; i++ {
 		startY := i * rowsPerWorker
@@ -147,30 +147,33 @@ func (b *Broker) distributeWork() error {
 			err := worker.Call(stubs.CalculateNextState, request, response)
 			if err != nil {
 				log.Printf("Error calling worker %d: %v", index, err)
-				flippedCellsChan <- []util.Cell{}
 				return
 			}
 			for y := request.StartY; y < request.EndY; y++ {
 				copy(newWorld[y], response.WorldSlice[y-request.StartY])
 			}
-			flippedCellsChan <- response.FlippedCells
+			b.mu.Lock()
+			b.cellsFlipped = append(b.cellsFlipped, response.CellsFlipped...)
+			b.mu.Unlock()
 		}(worker, request, i)
 	}
 	b.mu.Unlock()
 
 	wg.Wait()
-
-	flippedCells := []util.Cell{}
-	for i := 0; i < numWorkers; i++ {
-		cells := <-flippedCellsChan
-		flippedCells = append(flippedCells, cells...)
-	}
-
 	b.mu.Lock()
 	b.world = newWorld
-	b.flippedCells = flippedCells
 	b.mu.Unlock()
 
+	return nil
+}
+
+func (b *Broker) GetTurnUpdates(req *stubs.TurnUpdatesRequest, res *stubs.TurnUpdatesResponse) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	res.CellsFlipped = b.cellsFlipped
+	res.CompletedTurns = b.turn
+	// Reset cellsFlipped for the next turn
+	b.cellsFlipped = []util.Cell{}
 	return nil
 }
 
@@ -190,15 +193,6 @@ func (b *Broker) GetWorld(req *stubs.GetWorldRequest, res *stubs.GetWorldRespons
 	res.World = b.world
 	res.CompletedTurns = b.turn
 	res.Processing = b.processing
-	return nil
-}
-
-func (b *Broker) GetFlippedCells(req *stubs.GetFlippedCellsRequest, res *stubs.GetFlippedCellsResponse) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	res.FlippedCells = b.flippedCells
-	res.CompletedTurns = b.turn
-	b.flippedCells = nil
 	return nil
 }
 

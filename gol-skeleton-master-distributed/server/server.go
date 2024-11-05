@@ -47,15 +47,14 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 	width := req.ImageWidth
 
 	newWorldSlice := make([][]uint8, height-2)
-	flippedCells := []util.Cell{}
+	cellsFlipped := []util.Cell{}
 
 	for y := 1; y < height-1; y++ {
 		newRow := make([]uint8, width)
 		for x := 0; x < width; x++ {
 			neighbours := calculateNeighbours(worldSlice, x, y, width, height)
-			oldValue := worldSlice[y][x]
-			var newValue uint8
-			if oldValue == 255 {
+			newValue := worldSlice[y][x]
+			if worldSlice[y][x] == 255 {
 				if neighbours == 2 || neighbours == 3 {
 					newValue = 255
 				} else {
@@ -69,18 +68,18 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 				}
 			}
 			newRow[x] = newValue
-			if oldValue != newValue {
-				flippedCells = append(flippedCells, util.Cell{
-					X: x,
-					Y: req.StartY + y - 1, // Adjust Y coordinate
-				})
+			// Compare old and new values
+			if newValue != worldSlice[y][x] {
+				globalY := req.StartY + (y - 1)
+				cell := util.Cell{X: x, Y: globalY}
+				cellsFlipped = append(cellsFlipped, cell)
 			}
 		}
 		newWorldSlice[y-1] = newRow
 	}
 
 	res.WorldSlice = newWorldSlice
-	res.FlippedCells = flippedCells
+	res.CellsFlipped = cellsFlipped
 	return nil
 }
 

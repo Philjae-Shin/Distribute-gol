@@ -1,3 +1,5 @@
+// stubs.go
+
 package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
@@ -10,7 +12,7 @@ var Pause = "Broker.Pause"
 var Resume = "Broker.Resume"
 var Shutdown = "Broker.Shutdown"
 var CalculateNextState = "GolWorker.CalculateNextState"
-var GetFlippedCells = "Broker.GetFlippedCells"
+var GetTurnUpdates = "Broker.GetTurnUpdates"
 
 type EngineRequest struct {
 	World       [][]uint8
@@ -67,12 +69,12 @@ type WorkerRequest struct {
 
 type WorkerResponse struct {
 	WorldSlice   [][]uint8
-	FlippedCells []util.Cell
+	CellsFlipped []util.Cell
 }
 
-type GetFlippedCellsRequest struct{}
+type TurnUpdatesRequest struct{}
 
-type GetFlippedCellsResponse struct {
+type TurnUpdatesResponse struct {
+	CellsFlipped   []util.Cell
 	CompletedTurns int
-	FlippedCells   []util.Cell
 }
