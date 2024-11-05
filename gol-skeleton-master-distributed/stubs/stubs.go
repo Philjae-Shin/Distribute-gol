@@ -1,107 +1,133 @@
 package stubs
 
 const (
-	Process            = "Broker.Process"
-	GetAliveCells      = "Broker.GetAliveCells"
-	StopProcessing     = "Broker.StopProcessing"
-	GetWorld           = "Broker.GetWorld"
-	Pause              = "Broker.Pause"
-	Resume             = "Broker.Resume"
-	Shutdown           = "Broker.Shutdown"
-	CalculateNextState = "GolWorker.CalculateNextState"
+	ProcessTurnsHandler = "GolOperations.Process"
 
-	// SetNeighbors Halo exchange
-	SetNeighbors      = "GolWorker.SetNeighbors"
-	StartWorker       = "GolWorker.StartWorker"
-	GetFinalSlice     = "GolWorker.GetFinalSlice"
-	ReceiveTopHalo    = "GolWorker.ReceiveTopHalo"
-	ReceiveBottomHalo = "GolWorker.ReceiveBottomHalo"
+	// var OperationsHandler = "GolOperations.Operations"
+	JobHandler          = "GolOperations.ListenToWork"
+	ActionHandler       = "Broker.Action"
+	ActionReport        = "Broker.ActionWithReport"
+	ActionHandlerWorker = "GolOperations.Action"
+	ActionReportWorker  = "GolOperations.ActionWithReport"
+	ConnectDistributor  = "Broker.ConnectDistributor"
+	ConnectWorker       = "Broker.ConnectWorker"
+	MakeChannel         = "Broker.MakeChannel"
+	Publish             = "Broker.Publish"
+	Report              = "GolOperations.Report"
+	UpdateWorld         = "GolOperations.UpdateWorld"
+	UpdateBroker        = "Broker.UpdateBroker"
+	UpdateWorker        = "GolOperations.UpdateWorker"
+
+	//UpdateWorker = "Broker.UpdateWorker"
 )
 
-type EngineRequest struct {
-	World       [][]uint8
-	ImageWidth  int
+const NoAction int = 0
+const Save int = 1
+const Quit int = 2
+const Pause int = 3
+const UnPause int = 4
+const Kill int = 5
+const Ticker int = 6
+
+// REGISTER : DISTRIBUTOR
+// SUBSCRIBE : WORKER
+
+// (Broker -> Distributor)
+// Applies for Save, Kill, Ticker
+
+type Params struct {
+	Threads     int
 	ImageHeight int
+	ImageWidth  int
 	Turns       int
 }
 
-type EngineResponse struct {
-	World          [][]uint8
-	CompletedTurns int
+type Response struct {
+	World     [][]uint8
+	TurnsDone int
 }
 
-type AliveCellsCountRequest struct{}
-
-type AliveCellsCountResponse struct {
-	CompletedTurns int
-	CellsCount     int
+type Request struct {
+	World       [][]uint8
+	Threads     int
+	Turns       int
+	ImageWidth  int
+	ImageHeight int
 }
-
-type StopRequest struct{}
-
-type StopResponse struct{}
-
-type GetWorldRequest struct{}
-
-type GetWorldResponse struct {
-	World          [][]uint8
-	CompletedTurns int
-	Processing     bool
-}
-
-type PauseRequest struct{}
-
-type PauseResponse struct {
-	Turn int
-}
-
-type ResumeRequest struct{}
-
-type ResumeResponse struct{}
-
-type ShutdownRequest struct{}
-
-type ShutdownResponse struct{}
 
 type WorkerRequest struct {
-	StartY      int
-	EndY        int
-	WorldSlice  [][]uint8
+	WorkerId int
+	StartY   int
+	EndY     int
+	StartX   int
+	EndX     int
+	World    [][]uint8
+	Turns    int
+	Params   Params
+}
+
+type PauseRequest struct {
+	Pause bool
+}
+
+// (Distributor -> Broker)
+// (Worker -> Broker)
+type ChannelRequest struct {
+	Threads int
+}
+
+// Connect to the broker from the first tiem and initialise world
+type RegisterRequest struct {
+	World       [][]uint8
+	Threads     int
 	ImageWidth  int
 	ImageHeight int
 }
 
-type WorkerResponse struct {
-	WorldSlice [][]uint8
+type UpdateRequest struct {
+	World    [][]uint8
+	Turns    int
+	WorkerId int
 }
 
-// NeighborRequest New types for neighbor setup and halo exchange
-type NeighborRequest struct {
-	PrevWorkerAddr string
-	NextWorkerAddr string
+type ActionRequest struct {
+	Action int
 }
 
-type NeighborResponse struct{}
+// ----------------- Keypresses --------------------
 
-type StartWorkerRequest struct {
-	StartY      int
-	EndY        int
-	WorldSlice  [][]uint8
-	ImageWidth  int
-	ImageHeight int
-	Turns       int
+// (Broker -> Distributor)
+// Applies for Save, Kill, Ticker
+
+// (Worker -> Broker)
+type SubscribeRequest struct {
+	WorkerAddress string
 }
 
-type StartWorkerResponse struct{}
-
-type GetFinalSliceRequest struct{}
-
-type GetFinalSliceResponse struct {
-	WorldSlice [][]uint8
+// (Broker -> Worker)
+type StateRequest struct {
+	State int
 }
 
-type HaloDataRequest struct {
-	Row []uint8
+// ----------------- Ticker -----------------------
+// (Distributor -> Broker)
+type TickerRequest struct {
 }
 
-type HaloDataResponse struct{}
+// (Distributor -> Broker)
+// (Broker -> Distributor)
+
+// Response that doesn't require any additional data
+type StatusReport struct {
+	Status int
+}
+
+// 1. The distributor initialises the board, gets the input from the IO.
+// 2. The distributor passes the value to the broker how many threads there would be.
+// 3. The broker receives a request by 'ChannelRequest' and makes a channel, which communicates between workers and the broker.
+// 4. The broker invokes a rpc call (GOLOperation) to the worker. 																=> rpc.GO
+// 5. The worker accepts the rpc client, and iterates all the GOLOperation.
+// 5-1. The distributor needs a report about calculating the number of the alive cell every 2 seconds.							=> goroutine for a (function)_loop
+// (The counting alive function can be implemented either in the distributor, or in the worker.)
+// 5-2. The distributor listens to a keypress, and if any action(keypress) has occured,											=> goroutine for a (function)_loop
+//       we need to pass the action to the broker, and the broker sends the action to the worker.

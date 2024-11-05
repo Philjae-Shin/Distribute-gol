@@ -1,197 +1,248 @@
-// server/server.go
 package main
 
 import (
 	"flag"
 	"fmt"
-	"log"
 	"net"
 	"net/rpc"
-	"sync"
+	"os"
 
 	"uk.ac.bris.cs/gameoflife/stubs"
+	"uk.ac.bris.cs/gameoflife/util"
 )
 
-type GolWorker struct {
-	mu                sync.Mutex
-	prevWorkerAddr    string
-	nextWorkerAddr    string
-	prevWorkerClient  *rpc.Client
-	nextWorkerClient  *rpc.Client
-	topHaloRowChan    chan []uint8
-	bottomHaloRowChan chan []uint8
-	worldSlice        [][]uint8
-	startY            int
-	endY              int
-	width             int
-	height            int
-	turns             int
+// analogue to updateWorld function
+/** Super-Secret `reversing a string' method we can't allow clients to see. **/
+/*func ReverseString(s string, i int) string {
+time.Sleep(time.DurationCall runes[j], runes[i]
+}
+return string(runes)
+}*/
+
+var listener net.Listener
+var pause bool
+var quit bool
+var kill bool = false
+var waitToUnpause chan bool
+
+// updateBroker
+var turnChan chan int
+var worldChan chan [][]uint8
+
+// updateWorker
+var workerTurnChan chan int
+var workerWorldChan chan [][]uint8
+
+var turnInternal chan int
+var worldInternal chan [][]uint8
+
+var workerId int
+var nextAddr string
+var globalWorld [][]uint8
+var completedTurns int
+var incr int
+var resume chan bool
+var done chan bool
+
+func getOutboundIP() string {
+	conn, _ := net.Dial("udp", "8.8.8.8:80")
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr).IP.String()
+	return localAddr
 }
 
 func mod(a, b int) int {
 	return (a%b + b) % b
 }
 
-func calculateNeighbours(world [][]uint8, x, y, width, height int) int {
-	count := 0
-	for deltaY := -1; deltaY <= 1; deltaY++ {
-		for deltaX := -1; deltaX <= 1; deltaX++ {
-			if deltaX == 0 && deltaY == 0 {
-				continue
-			}
-			nx := mod(x+deltaX, width)
-			ny := y + deltaY
-			if ny < 0 || ny >= height {
-				continue
-			}
-			if world[ny][nx] == 255 {
-				count++
-			}
+func calculateNeighbours(height, width int, world [][]byte, y int, x int) int {
+
+	h := height
+	w := width
+	noOfNeighbours := 0
+
+	neighbour := []byte{world[mod(y+1, h)][mod(x, w)], world[mod(y+1, h)][mod(x+1, w)], world[mod(y, h)][mod(x+1, w)],
+		world[mod(y-1, h)][mod(x+1, w)], world[mod(y-1, h)][mod(x, w)], world[mod(y-1, h)][mod(x-1, w)],
+		world[mod(y, h)][mod(x-1, w)], world[mod(y+1, h)][mod(x-1, w)]}
+
+	for i := 0; i < 8; i++ {
+		if neighbour[i] == 255 {
+			noOfNeighbours++
 		}
 	}
-	return count
+
+	return noOfNeighbours
 }
 
-func (g *GolWorker) SetNeighbors(req *stubs.NeighborRequest, res *stubs.NeighborResponse) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+func CalculateNextState(height, width, startY, endY int, world [][]byte) ([][]byte, []util.Cell) {
 
-	g.prevWorkerAddr = req.PrevWorkerAddr
-	g.nextWorkerAddr = req.NextWorkerAddr
-
-	if g.prevWorkerAddr != "" {
-		prevClient, err := rpc.Dial("tcp", g.prevWorkerAddr)
-		if err != nil {
-			return fmt.Errorf("failed to connect to previous worker at %s: %v", g.prevWorkerAddr, err)
-		}
-		g.prevWorkerClient = prevClient
+	newWorld := make([][]byte, endY-startY)
+	var flipCell []util.Cell
+	for i := 0; i < endY-startY; i++ {
+		newWorld[i] = make([]byte, width)
+		// copy(newWorld[i], world[startY+i])
 	}
 
-	if g.nextWorkerAddr != "" {
-		nextClient, err := rpc.Dial("tcp", g.nextWorkerAddr)
-		if err != nil {
-			return fmt.Errorf("failed to connect to next worker at %s: %v", g.nextWorkerAddr, err)
-		}
-		g.nextWorkerClient = nextClient
-	}
-
-	return nil
-}
-
-func (g *GolWorker) StartWorker(req *stubs.StartWorkerRequest, res *stubs.StartWorkerResponse) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	g.startY = req.StartY
-	g.endY = req.EndY
-	g.worldSlice = req.WorldSlice
-	g.width = req.ImageWidth
-	g.height = len(g.worldSlice)
-	g.turns = req.Turns
-
-	// Initialize channels
-	g.topHaloRowChan = make(chan []uint8)
-	g.bottomHaloRowChan = make(chan []uint8)
-
-	go g.runWorker()
-	return nil
-}
-
-func (g *GolWorker) runWorker() {
-	for t := 0; t < g.turns; t++ {
-		// Send own top row to previous worker
-		if g.prevWorkerClient != nil {
-			req := stubs.HaloDataRequest{Row: g.worldSlice[0]}
-			res := new(stubs.HaloDataResponse)
-			go g.prevWorkerClient.Call(stubs.ReceiveBottomHalo, req, res)
-		}
-
-		// Send own bottom row to next worker
-		if g.nextWorkerClient != nil {
-			req := stubs.HaloDataRequest{Row: g.worldSlice[len(g.worldSlice)-1]}
-			res := new(stubs.HaloDataResponse)
-			go g.nextWorkerClient.Call(stubs.ReceiveTopHalo, req, res)
-		}
-
-		// Receive halo rows from neighbors
-		var topHaloRow, bottomHaloRow []uint8
-
-		if g.prevWorkerClient != nil {
-			bottomHaloRow = <-g.bottomHaloRowChan
-		} else {
-			// For edge workers, wrap around
-			bottomHaloRow = g.worldSlice[len(g.worldSlice)-1]
-		}
-
-		if g.nextWorkerClient != nil {
-			topHaloRow = <-g.topHaloRowChan
-		} else {
-			// For edge workers, wrap around
-			topHaloRow = g.worldSlice[0]
-		}
-
-		// Process the iteration
-		extendedWorld := make([][]uint8, len(g.worldSlice)+2)
-		copy(extendedWorld[1:len(extendedWorld)-1], g.worldSlice)
-		extendedWorld[0] = topHaloRow
-		extendedWorld[len(extendedWorld)-1] = bottomHaloRow
-
-		newWorldSlice := make([][]uint8, len(g.worldSlice))
-		for y := 1; y < len(extendedWorld)-1; y++ {
-			newRow := make([]uint8, g.width)
-			for x := 0; x < g.width; x++ {
-				neighbours := calculateNeighbours(extendedWorld, x, y, g.width, len(extendedWorld))
-				if extendedWorld[y][x] == 255 {
-					if neighbours == 2 || neighbours == 3 {
-						newRow[x] = 255
-					} else {
-						newRow[x] = 0
-					}
+	for y := 0; y < endY-startY; y++ {
+		for x := 0; x < width; x++ {
+			noOfNeighbours := calculateNeighbours(height, width, world, startY+y, x)
+			cell := world[startY+y][x]
+			if cell == 255 {
+				if noOfNeighbours < 2 || noOfNeighbours > 3 {
+					newWorld[y][x] = 0
+					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
 				} else {
-					if neighbours == 3 {
-						newRow[x] = 255
-					} else {
-						newRow[x] = 0
-					}
+					newWorld[y][x] = 255
+				}
+			} else {
+				if noOfNeighbours == 3 {
+					newWorld[y][x] = 255
+					flipCell = append(flipCell, util.Cell{X: x, Y: startY + y})
+				} else {
+					newWorld[y][x] = 0
 				}
 			}
-			newWorldSlice[y-1] = newRow
 		}
-		g.mu.Lock()
-		g.worldSlice = newWorldSlice
-		g.mu.Unlock()
+	}
+
+	return newWorld, flipCell
+}
+
+type GolOperations struct{}
+
+func (s *GolOperations) Report(req stubs.ActionRequest, res *stubs.Response) (err error) {
+	//res.TurnsDone, res.World = sendToBroker()
+	return
+}
+
+func UpdateBroker2(tchan chan int, wchan chan [][]uint8, client *rpc.Client) {
+	for {
+		t := <-tchan
+		ws := <-wchan
+		towork := stubs.UpdateRequest{Turns: t, World: ws, WorkerId: workerId}
+		status := new(stubs.StatusReport)
+		err := client.Call(stubs.UpdateBroker, towork, status)
+		if err != nil {
+			fmt.Println("RPC client returned error:")
+			fmt.Println(err)
+			fmt.Println("Dropping division.")
+		}
 	}
 }
 
-func (g *GolWorker) ReceiveTopHalo(req *stubs.HaloDataRequest, res *stubs.HaloDataResponse) error {
-	g.topHaloRowChan <- req.Row
+func (s *GolOperations) Action(req stubs.StateRequest, res *stubs.StatusReport) (err error) {
+	switch req.State {
+	case stubs.Pause:
+		pause = true
+	case stubs.UnPause:
+		pause = false
+	}
 	return nil
 }
 
-func (g *GolWorker) ReceiveBottomHalo(req *stubs.HaloDataRequest, res *stubs.HaloDataResponse) error {
-	g.bottomHaloRowChan <- req.Row
+func (s *GolOperations) ActionWithReport(req stubs.StateRequest, res *stubs.StatusReport) (err error) {
+	switch req.State {
+	case stubs.Quit:
+		quit = true
+		fmt.Println("pause")
+	case stubs.Save:
+	case stubs.Kill:
+		kill = true
+		defer os.Exit(0)
+	}
+	fmt.Println("deafault")
 	return nil
 }
 
-func (g *GolWorker) GetFinalSlice(req *stubs.GetFinalSliceRequest, res *stubs.GetFinalSliceResponse) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	res.WorldSlice = g.worldSlice
-	return nil
+func (s *GolOperations) UpdateWorker(req stubs.UpdateRequest, res *stubs.StatusReport) (err error) {
+	fmt.Println("UpdateWorld called")
+	fmt.Println("From:", req.Turns)
+	globalWorld = req.World
+	completedTurns = req.Turns
+	res.Status = 7
+	incr++
+	return
 }
+
+func (s *GolOperations) Process(req stubs.WorkerRequest, res *stubs.Response) (err error) {
+	fmt.Println("Processing")
+	workerId = req.WorkerId
+	var newWorldSlice [][]uint8
+	globalWorld = req.World
+	pause = false
+	quit = false
+	turn := 0
+	incr = 0
+	for t := 0; t < req.Turns; t++ {
+		if incr == t && !pause && !quit {
+			if pause {
+				fmt.Println("Paused")
+			}
+			if !kill {
+				fmt.Println("Loop iteration", t, "on worker", workerId)
+				newWorldSlice, _ = CalculateNextState(req.Params.ImageHeight, req.Params.ImageWidth, req.StartY, req.EndY, globalWorld)
+				turn++
+				fmt.Println("chan1")
+				turnChan <- turn
+				fmt.Println("chan2")
+				worldChan <- newWorldSlice
+				fmt.Println("chan3")
+				fmt.Println(turn)
+			} else {
+				if kill {
+					break
+				} else {
+					continue
+				}
+			}
+		} else {
+			t--
+		}
+	}
+	res.World = newWorldSlice
+	res.TurnsDone = turn
+	return
+}
+
+// kill := make(chan bool)
 
 func main() {
-	pAddr := flag.String("port", "8031", "Port to listen on")
+	pAddr := flag.String("port", "8050", "Port to listen on")
+	pIp := flag.String("ip", "127.0.0.1:8030", "Port to listen on")
+	brokerAddr := flag.String("broker", "127.0.0.1:8030", "Address of broker instance")
 	flag.Parse()
-
-	golWorker := new(GolWorker)
-	rpc.RegisterName("GolWorker", golWorker)
-
-	listener, err := net.Listen("tcp", ":"+*pAddr)
+	client, err := rpc.Dial("tcp", *brokerAddr)
+	//client, err := rpc.Dial("tcp", "127.0.0.1:8030")
 	if err != nil {
-		log.Fatal("Error starting Gol worker:", err)
+		fmt.Println(err)
 	}
-	defer listener.Close()
-	fmt.Println("Gol Worker listening on port", *pAddr)
-	rpc.Accept(listener)
+	rpc.Register(&GolOperations{})
+	//fmt.Println(*pAddr)
+	fmt.Println(getOutboundIP() + ":" + *pAddr)
+	listenerr, err := net.Listen("tcp", ":"+*pAddr)
+	//fmt.Println(getOutboundIP() + ":" + "8050")
+	//listenerr, err := net.Listen("tcp", ":"+"8050")
+	if err != nil {
+		fmt.Println(err)
+	}
+	subscribe := stubs.SubscribeRequest{
+		WorkerAddress: *pIp + ":" + *pAddr,
+		//WorkerAddress: getOutboundIP() + ":" + "8050",
+	}
+	turnChan = make(chan int)
+	turnInternal = make(chan int)
+	worldChan = make(chan [][]uint8)
+	worldInternal = make(chan [][]uint8)
+	waitToUnpause = make(chan bool)
+
+	//go receive()
+	//go send()
+	client.Call(stubs.ConnectWorker, subscribe, new(stubs.StatusReport))
+
+	//client.Call(stubs.ConnectWorker, subscribe, new(stubs.StatusReport))
+	defer listenerr.Close()
+	go UpdateBroker2(turnChan, worldChan, client)
+	//go UpdateWorker2(client)
+	rpc.Accept(listenerr)
+
 }
