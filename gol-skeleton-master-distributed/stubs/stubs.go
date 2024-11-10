@@ -11,6 +11,7 @@ const (
 	Resume             = "Broker.Resume"
 	Shutdown           = "Broker.Shutdown"
 	CalculateNextState = "GolWorker.CalculateNextState"
+	ProcessTurn        = "Broker.ProcessTurn"
 )
 
 type EngineRequest struct {
@@ -70,4 +71,13 @@ type WorkerRequest struct {
 type WorkerResponse struct {
 	WorldSlice   [][]uint8
 	FlippedCells []util.Cell
+}
+
+type ProcessTurnRequest struct{}
+
+type ProcessTurnResponse struct {
+	FlippedCells   []util.Cell
+	CompletedTurns int
+	AliveCells     int
+	Processing     bool
 }

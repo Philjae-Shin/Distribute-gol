@@ -79,148 +79,121 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		log.Fatal("Error calling Process:", err)
 	}
 
-	ticker := time.NewTicker(2 * time.Second)
-	done := make(chan bool)
-	processingDone := make(chan bool)
 	paused := false
+	done := false
+	processingDone := false
 
-	go func() {
-		for {
-			select {
-			case key := <-keyPresses:
-				switch key {
-				case 's':
-					getWorldRequest := &stubs.GetWorldRequest{}
-					getWorldResponse := new(stubs.GetWorldResponse)
-					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-					if err != nil {
-						log.Println("Error calling GetWorld:", err)
-					} else {
-						worldSnapshot := getWorldResponse.World
-						turn := getWorldResponse.CompletedTurns
-						handleOutput(p, c, worldSnapshot, turn)
-					}
-				case 'q':
-					done <- true
-					return
-				case 'k':
-					shutdownRequest := &stubs.ShutdownRequest{}
-					shutdownResponse := new(stubs.ShutdownResponse)
-					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
-					if err != nil {
-						log.Println("Error calling Shutdown:", err)
-					}
-					getWorldRequest := &stubs.GetWorldRequest{}
-					getWorldResponse := new(stubs.GetWorldResponse)
-					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-					if err != nil {
-						log.Println("Error calling GetWorld:", err)
-					} else {
-						worldSnapshot := getWorldResponse.World
-						turn := getWorldResponse.CompletedTurns
-						handleOutput(p, c, worldSnapshot, turn)
-					}
-					done <- true
-					return
-				case 'p':
-					if !paused {
-						pauseRequest := &stubs.PauseRequest{}
-						pauseResponse := new(stubs.PauseResponse)
-						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
-						if err != nil {
-							log.Println("Error calling Pause:", err)
-						} else {
-							fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
-							paused = true
-							c.events <- StateChange{
-								CompletedTurns: pauseResponse.Turn,
-								NewState:       Paused,
-							}
-						}
-					} else {
-						resumeRequest := &stubs.ResumeRequest{}
-						resumeResponse := new(stubs.ResumeResponse)
-						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
-						if err != nil {
-							log.Println("Error calling Resume:", err)
-						} else {
-							fmt.Println("Continuing")
-							paused = false
-							getWorldRequest := &stubs.GetWorldRequest{}
-							getWorldResponse := new(stubs.GetWorldResponse)
-							err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-							if err == nil {
-								c.events <- StateChange{
-									CompletedTurns: getWorldResponse.CompletedTurns,
-									NewState:       Executing,
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
+	for !done && !processingDone {
+		select {
+		case key := <-keyPresses:
+			switch key {
+			case 's':
+				// Save the current state
 				getWorldRequest := &stubs.GetWorldRequest{}
 				getWorldResponse := new(stubs.GetWorldResponse)
 				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 				if err != nil {
 					log.Println("Error calling GetWorld:", err)
 				} else {
+					worldSnapshot := getWorldResponse.World
 					turn := getWorldResponse.CompletedTurns
-					flippedCells := getWorldResponse.FlippedCells
-
-					// Send CellsFlipped event
-					if len(flippedCells) > 0 {
-						c.events <- CellsFlipped{
-							CompletedTurns: turn,
-							Cells:          flippedCells,
+					handleOutput(p, c, worldSnapshot, turn)
+				}
+			case 'q':
+				done = true
+				break
+			case 'k':
+				shutdownRequest := &stubs.ShutdownRequest{}
+				shutdownResponse := new(stubs.ShutdownResponse)
+				err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
+				if err != nil {
+					log.Println("Error calling Shutdown:", err)
+				}
+				getWorldRequest := &stubs.GetWorldRequest{}
+				getWorldResponse := new(stubs.GetWorldResponse)
+				err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+				if err != nil {
+					log.Println("Error calling GetWorld:", err)
+				} else {
+					worldSnapshot := getWorldResponse.World
+					turn := getWorldResponse.CompletedTurns
+					handleOutput(p, c, worldSnapshot, turn)
+				}
+				done = true
+				break
+			case 'p':
+				if !paused {
+					pauseRequest := &stubs.PauseRequest{}
+					pauseResponse := new(stubs.PauseResponse)
+					err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
+					if err != nil {
+						log.Println("Error calling Pause:", err)
+					} else {
+						fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
+						paused = true
+						c.events <- StateChange{
+							CompletedTurns: pauseResponse.Turn,
+							NewState:       Paused,
 						}
 					}
-
-					// Send AliveCellsCount event
-					aliveCount := 0
-					for y := 0; y < p.ImageHeight; y++ {
-						for x := 0; x < p.ImageWidth; x++ {
-							if getWorldResponse.World[y][x] == 255 {
-								aliveCount++
+				} else {
+					resumeRequest := &stubs.ResumeRequest{}
+					resumeResponse := new(stubs.ResumeResponse)
+					err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
+					if err != nil {
+						log.Println("Error calling Resume:", err)
+					} else {
+						fmt.Println("Continuing")
+						paused = false
+						getWorldRequest := &stubs.GetWorldRequest{}
+						getWorldResponse := new(stubs.GetWorldResponse)
+						err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+						if err == nil {
+							c.events <- StateChange{
+								CompletedTurns: getWorldResponse.CompletedTurns,
+								NewState:       Executing,
 							}
 						}
 					}
-					aliveReport := AliveCellsCount{
-						CompletedTurns: turn,
-						CellsCount:     aliveCount,
-					}
-					c.events <- aliveReport
+				}
+			}
+		default:
+			if !paused {
+				processTurnRequest := &stubs.ProcessTurnRequest{}
+				processTurnResponse := new(stubs.ProcessTurnResponse)
+				err := client.Call(stubs.ProcessTurn, processTurnRequest, processTurnResponse)
+				if err != nil {
+					log.Println("Error calling ProcessTurn:", err)
+					processingDone = true
+					break
+				}
 
-					if !getWorldResponse.Processing {
-						processingDone <- true
-						return
+				// Send CellsFlipped event
+				if len(processTurnResponse.FlippedCells) > 0 {
+					c.events <- CellsFlipped{
+						CompletedTurns: processTurnResponse.CompletedTurns,
+						Cells:          processTurnResponse.FlippedCells,
 					}
 				}
-			case <-done:
-				ticker.Stop()
-				return
+
+				// Send AliveCellsCount event
+				aliveReport := AliveCellsCount{
+					CompletedTurns: processTurnResponse.CompletedTurns,
+					CellsCount:     processTurnResponse.AliveCells,
+				}
+				c.events <- aliveReport
+
+				if !processTurnResponse.Processing || processTurnResponse.CompletedTurns >= p.Turns {
+					processingDone = true
+					break
+				}
+			} else {
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
-	}()
-
-	select {
-	case <-done:
-		stopRequest := &stubs.StopRequest{}
-		stopResponse := new(stubs.StopResponse)
-		err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
-		if err != nil {
-			log.Println("Error calling StopProcessing:", err)
-		}
-	case <-processingDone:
 	}
 
+	// After processing is done
 	finalWorldRequest := &stubs.GetWorldRequest{}
 	finalWorldResponse := new(stubs.GetWorldResponse)
 	err = client.Call(stubs.GetWorld, finalWorldRequest, finalWorldResponse)
