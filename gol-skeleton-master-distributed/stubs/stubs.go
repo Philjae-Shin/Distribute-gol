@@ -2,17 +2,15 @@ package stubs
 
 import "uk.ac.bris.cs/gameoflife/util"
 
-const (
-	Process            = "Broker.Process"
-	GetAliveCells      = "Broker.GetAliveCells"
-	StopProcessing     = "Broker.StopProcessing"
-	GetWorld           = "Broker.GetWorld"
-	Pause              = "Broker.Pause"
-	Resume             = "Broker.Resume"
-	Shutdown           = "Broker.Shutdown"
-	CalculateNextState = "GolWorker.CalculateNextState"
-	ProcessTurn        = "Broker.ProcessTurn"
-)
+var Process = "Broker.Process"
+var GetAliveCells = "Broker.GetAliveCells"
+var StopProcessing = "Broker.StopProcessing"
+var GetWorld = "Broker.GetWorld"
+var Pause = "Broker.Pause"
+var Resume = "Broker.Resume"
+var Shutdown = "Broker.Shutdown"
+var CalculateNextState = "GolWorker.CalculateNextState"
+var GetTurnUpdates = "Broker.GetTurnUpdates"
 
 type EngineRequest struct {
 	World       [][]uint8
@@ -43,7 +41,6 @@ type GetWorldResponse struct {
 	World          [][]uint8
 	CompletedTurns int
 	Processing     bool
-	FlippedCells   []util.Cell
 }
 
 type PauseRequest struct{}
@@ -70,14 +67,12 @@ type WorkerRequest struct {
 
 type WorkerResponse struct {
 	WorldSlice   [][]uint8
-	FlippedCells []util.Cell
+	CellsFlipped []util.Cell
 }
 
-type ProcessTurnRequest struct{}
+type TurnUpdatesRequest struct{}
 
-type ProcessTurnResponse struct {
-	FlippedCells   []util.Cell
+type TurnUpdatesResponse struct {
+	CellsFlipped   []util.Cell
 	CompletedTurns int
-	AliveCells     int
-	Processing     bool
 }

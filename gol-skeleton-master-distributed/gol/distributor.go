@@ -31,6 +31,7 @@ func handleOutput(p Params, c distributorChannels, world [][]uint8, t int) {
 	c.ioCommand <- ioCheckIdle
 	<-c.ioIdle
 
+	// 이벤트 전송
 	c.events <- ImageOutputComplete{
 		CompletedTurns: t,
 		Filename:       outFilename,
@@ -60,7 +61,8 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		}
 	}
 
-	client, err := rpc.Dial("tcp", "54.160.191.70:8030") // Connect to Broker
+	//client, err := rpc.Dial("tcp", "localhost:8030") Connect to AWS instance
+	client, err := rpc.Dial("tcp", "54.226.73.38:8030") // Connect to Broker
 	if err != nil {
 		log.Fatal("Failed connecting:", err)
 	}
@@ -74,126 +76,179 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 	}
 	response := new(stubs.EngineResponse)
 
+	// 시뮬레이션 시작
 	err = client.Call(stubs.Process, request, response)
 	if err != nil {
 		log.Fatal("Error calling Process:", err)
 	}
 
+	ticker := time.NewTicker(2 * time.Second)
+	done := make(chan bool)
+	processingDone := make(chan bool)
 	paused := false
-	done := false
-	processingDone := false
+	lastTurn := 0
 
-	for !done && !processingDone {
-		select {
-		case key := <-keyPresses:
-			switch key {
-			case 's':
-				// Save the current state
-				getWorldRequest := &stubs.GetWorldRequest{}
-				getWorldResponse := new(stubs.GetWorldResponse)
-				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-				if err != nil {
-					log.Println("Error calling GetWorld:", err)
-				} else {
-					worldSnapshot := getWorldResponse.World
-					turn := getWorldResponse.CompletedTurns
-					handleOutput(p, c, worldSnapshot, turn)
-				}
-			case 'q':
-				done = true
-				break
-			case 'k':
-				shutdownRequest := &stubs.ShutdownRequest{}
-				shutdownResponse := new(stubs.ShutdownResponse)
-				err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
-				if err != nil {
-					log.Println("Error calling Shutdown:", err)
-				}
-				getWorldRequest := &stubs.GetWorldRequest{}
-				getWorldResponse := new(stubs.GetWorldResponse)
-				err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-				if err != nil {
-					log.Println("Error calling GetWorld:", err)
-				} else {
-					worldSnapshot := getWorldResponse.World
-					turn := getWorldResponse.CompletedTurns
-					handleOutput(p, c, worldSnapshot, turn)
-				}
-				done = true
-				break
-			case 'p':
-				if !paused {
-					pauseRequest := &stubs.PauseRequest{}
-					pauseResponse := new(stubs.PauseResponse)
-					err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
+	// 키 입력 처리 고루틴
+	go func() {
+		for {
+			select {
+			case key := <-keyPresses:
+				switch key {
+				case 's':
+					// 현재 상태를 가져와서 저장
+					getWorldRequest := &stubs.GetWorldRequest{}
+					getWorldResponse := new(stubs.GetWorldResponse)
+					err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
 					if err != nil {
-						log.Println("Error calling Pause:", err)
+						log.Println("Error calling GetWorld:", err)
 					} else {
-						fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
-						paused = true
-						c.events <- StateChange{
-							CompletedTurns: pauseResponse.Turn,
-							NewState:       Paused,
-						}
+						worldSnapshot := getWorldResponse.World
+						turn := getWorldResponse.CompletedTurns
+						handleOutput(p, c, worldSnapshot, turn)
 					}
-				} else {
-					resumeRequest := &stubs.ResumeRequest{}
-					resumeResponse := new(stubs.ResumeResponse)
-					err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
+				case 'q':
+					// 프로그램 종료
+					done <- true
+					return
+				case 'k':
+					// 서버 종료 요청 및 프로그램 종료
+					shutdownRequest := &stubs.ShutdownRequest{}
+					shutdownResponse := new(stubs.ShutdownResponse)
+					err := client.Call(stubs.Shutdown, shutdownRequest, shutdownResponse)
 					if err != nil {
-						log.Println("Error calling Resume:", err)
+						log.Println("Error calling Shutdown:", err)
+					}
+					// 현재 상태 저장
+					getWorldRequest := &stubs.GetWorldRequest{}
+					getWorldResponse := new(stubs.GetWorldResponse)
+					err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+					if err != nil {
+						log.Println("Error calling GetWorld:", err)
 					} else {
-						fmt.Println("Continuing")
-						paused = false
-						getWorldRequest := &stubs.GetWorldRequest{}
-						getWorldResponse := new(stubs.GetWorldResponse)
-						err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
-						if err == nil {
+						worldSnapshot := getWorldResponse.World
+						turn := getWorldResponse.CompletedTurns
+						handleOutput(p, c, worldSnapshot, turn)
+					}
+					done <- true
+					return
+				case 'p':
+					if !paused {
+						// 일시 중지 요청
+						pauseRequest := &stubs.PauseRequest{}
+						pauseResponse := new(stubs.PauseResponse)
+						err := client.Call(stubs.Pause, pauseRequest, pauseResponse)
+						if err != nil {
+							log.Println("Error calling Pause:", err)
+						} else {
+							fmt.Printf("Paused at turn %d\n", pauseResponse.Turn)
+							paused = true
 							c.events <- StateChange{
-								CompletedTurns: getWorldResponse.CompletedTurns,
-								NewState:       Executing,
+								CompletedTurns: pauseResponse.Turn,
+								NewState:       Paused,
+							}
+						}
+					} else {
+						// 재개 요청
+						resumeRequest := &stubs.ResumeRequest{}
+						resumeResponse := new(stubs.ResumeResponse)
+						err := client.Call(stubs.Resume, resumeRequest, resumeResponse)
+						if err != nil {
+							log.Println("Error calling Resume:", err)
+						} else {
+							fmt.Println("Continuing")
+							paused = false
+							getWorldRequest := &stubs.GetWorldRequest{}
+							getWorldResponse := new(stubs.GetWorldResponse)
+							err = client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+							if err == nil {
+								c.events <- StateChange{
+									CompletedTurns: 0,
+									NewState:       Executing,
+								}
 							}
 						}
 					}
 				}
 			}
-		default:
-			if !paused {
-				processTurnRequest := &stubs.ProcessTurnRequest{}
-				processTurnResponse := new(stubs.ProcessTurnResponse)
-				err := client.Call(stubs.ProcessTurn, processTurnRequest, processTurnResponse)
-				if err != nil {
-					log.Println("Error calling ProcessTurn:", err)
-					processingDone = true
-					break
-				}
+		}
+	}()
 
-				// Send CellsFlipped event
-				if len(processTurnResponse.FlippedCells) > 0 {
+	// 2초마다 살아있는 셀 수 가져오기
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				getWorldRequest := &stubs.GetWorldRequest{}
+				getWorldResponse := new(stubs.GetWorldResponse)
+				err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+				if err != nil {
+					log.Println("Error calling GetWorld:", err)
+					return
+				}
+				if getWorldResponse.CompletedTurns > lastTurn {
+					// Turn has advanced
+					lastTurn = getWorldResponse.CompletedTurns
+					// Fetch updates
+					turnUpdatesRequest := &stubs.TurnUpdatesRequest{}
+					turnUpdatesResponse := new(stubs.TurnUpdatesResponse)
+					err = client.Call(stubs.GetTurnUpdates, turnUpdatesRequest, turnUpdatesResponse)
+					if err != nil {
+						log.Println("Error calling GetTurnUpdates:", err)
+						return
+					}
+					// Send CellsFlipped event
 					c.events <- CellsFlipped{
-						CompletedTurns: processTurnResponse.CompletedTurns,
-						Cells:          processTurnResponse.FlippedCells,
+						CompletedTurns: turnUpdatesResponse.CompletedTurns,
+						Cells:          turnUpdatesResponse.CellsFlipped,
+					}
+					// Send TurnComplete event
+					c.events <- TurnComplete{
+						CompletedTurns: turnUpdatesResponse.CompletedTurns,
 					}
 				}
-
-				// Send AliveCellsCount event
-				aliveReport := AliveCellsCount{
-					CompletedTurns: processTurnResponse.CompletedTurns,
-					CellsCount:     processTurnResponse.AliveCells,
+				if !getWorldResponse.Processing {
+					processingDone <- true
+					return
 				}
-				c.events <- aliveReport
-
-				if !processTurnResponse.Processing || processTurnResponse.CompletedTurns >= p.Turns {
-					processingDone = true
-					break
-				}
-			} else {
-				time.Sleep(100 * time.Millisecond)
+			case <-done:
+				ticker.Stop()
+				return
 			}
 		}
+	}()
+
+	// 시뮬레이션 완료 대기
+	go func() {
+		// 시뮬레이션이 완료될 때까지 대기
+		for {
+			time.Sleep(1 * time.Second)
+			getWorldRequest := &stubs.GetWorldRequest{}
+			getWorldResponse := new(stubs.GetWorldResponse)
+			err := client.Call(stubs.GetWorld, getWorldRequest, getWorldResponse)
+			if err != nil {
+				log.Println("Error calling GetWorld:", err)
+			} else {
+				if !getWorldResponse.Processing {
+					processingDone <- true
+					return
+				}
+			}
+		}
+	}()
+
+	// 시뮬레이션 종료 또는 완료 대기
+	select {
+	case <-done:
+		stopRequest := &stubs.StopRequest{}
+		stopResponse := new(stubs.StopResponse)
+		err := client.Call(stubs.StopProcessing, stopRequest, stopResponse)
+		if err != nil {
+			log.Println("Error calling StopProcessing:", err)
+		}
+	case <-processingDone:
 	}
 
-	// After processing is done
+	// 최종 세계 상태 가져오기
 	finalWorldRequest := &stubs.GetWorldRequest{}
 	finalWorldResponse := new(stubs.GetWorldResponse)
 	err = client.Call(stubs.GetWorld, finalWorldRequest, finalWorldResponse)
@@ -203,6 +258,7 @@ func distributor(p Params, c distributorChannels, keyPresses <-chan rune) {
 		world = finalWorldResponse.World
 		turn := finalWorldResponse.CompletedTurns
 
+		// 최종 결과 처리
 		aliveCells := []util.Cell{}
 		for y := 0; y < p.ImageHeight; y++ {
 			for x := 0; x < p.ImageWidth; x++ {

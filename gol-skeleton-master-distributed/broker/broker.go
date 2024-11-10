@@ -25,7 +25,7 @@ type Broker struct {
 	processing   bool
 	paused       bool
 	shutdown     bool
-	FlippedCells []util.Cell
+	cellsFlipped []util.Cell
 }
 
 func (b *Broker) connectToWorkers(workerAddrs []string) error {
@@ -49,9 +49,7 @@ func (b *Broker) connectToWorkers(workerAddrs []string) error {
 func (b *Broker) Process(req *stubs.EngineRequest, res *stubs.EngineResponse) error {
 	b.mu.Lock()
 	if b.processing {
-		// Previous simulation is running; stop it
 		b.stop = true
-		// Wait for it to finish
 		b.mu.Unlock()
 		b.waitForProcessingToFinish()
 		b.mu.Lock()
@@ -83,14 +81,12 @@ func (b *Broker) runSimulation() {
 			break
 		}
 		for b.paused {
-			// Wait until resumed
 			b.mu.Unlock()
 			time.Sleep(100 * time.Millisecond)
 			b.mu.Lock()
 		}
 		b.mu.Unlock()
 
-		// Distribute work to workers
 		err := b.distributeWork()
 		if err != nil {
 			log.Println("Error distributing work:", err)
@@ -109,7 +105,6 @@ func (b *Broker) runSimulation() {
 
 func (b *Broker) distributeWork() error {
 	b.mu.Lock()
-	// Divide world into slices
 	numWorkers := len(b.workers)
 	rowsPerWorker := b.height / numWorkers
 	remainder := b.height % numWorkers
@@ -121,7 +116,7 @@ func (b *Broker) distributeWork() error {
 		newWorld[i] = make([]uint8, b.width)
 	}
 
-	workerResponses := make([]*stubs.WorkerResponse, numWorkers)
+	b.cellsFlipped = []util.Cell{}
 
 	for i := 0; i < numWorkers; i++ {
 		startY := i * rowsPerWorker
@@ -129,7 +124,7 @@ func (b *Broker) distributeWork() error {
 		if i == numWorkers-1 {
 			endY += remainder
 		}
-		workerWorld := make([][]uint8, endY-startY+2) // Include ghost rows
+		workerWorld := make([][]uint8, endY-startY+2)
 		for y := startY - 1; y <= endY; y++ {
 			row := make([]uint8, b.width)
 			copy(row, b.world[(y+b.height)%b.height])
@@ -145,7 +140,6 @@ func (b *Broker) distributeWork() error {
 		}
 
 		worker := b.workers[i]
-		index := i
 		go func(worker *rpc.Client, request stubs.WorkerRequest, index int) {
 			defer wg.Done()
 			response := new(stubs.WorkerResponse)
@@ -154,32 +148,35 @@ func (b *Broker) distributeWork() error {
 				log.Printf("Error calling worker %d: %v", index, err)
 				return
 			}
-			// Copy the results back into newWorld
 			for y := request.StartY; y < request.EndY; y++ {
 				copy(newWorld[y], response.WorldSlice[y-request.StartY])
 			}
-			workerResponses[index] = response
-		}(worker, request, index)
+			b.mu.Lock()
+			b.cellsFlipped = append(b.cellsFlipped, response.CellsFlipped...)
+			b.mu.Unlock()
+		}(worker, request, i)
 	}
 	b.mu.Unlock()
 
 	wg.Wait()
 	b.mu.Lock()
 	b.world = newWorld
-	// Collect flipped cells
-	b.FlippedCells = []util.Cell{}
-	for i := 0; i < numWorkers; i++ {
-		if workerResponses[i] != nil {
-			b.FlippedCells = append(b.FlippedCells, workerResponses[i].FlippedCells...)
-		}
-	}
 	b.mu.Unlock()
 
 	return nil
 }
 
+func (b *Broker) GetTurnUpdates(req *stubs.TurnUpdatesRequest, res *stubs.TurnUpdatesResponse) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	res.CellsFlipped = b.cellsFlipped
+	res.CompletedTurns = b.turn
+	// Reset cellsFlipped for the next turn
+	b.cellsFlipped = []util.Cell{}
+	return nil
+}
+
 func (b *Broker) waitForProcessingToFinish() {
-	// Wait for processing to finish
 	b.mu.Lock()
 	for b.processing {
 		b.mu.Unlock()
@@ -195,62 +192,6 @@ func (b *Broker) GetWorld(req *stubs.GetWorldRequest, res *stubs.GetWorldRespons
 	res.World = b.world
 	res.CompletedTurns = b.turn
 	res.Processing = b.processing
-	res.FlippedCells = b.FlippedCells
-	return nil
-}
-
-func (b *Broker) Pause(req *stubs.PauseRequest, res *stubs.PauseResponse) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if !b.processing || b.paused {
-		return nil
-	}
-	b.paused = true
-	res.Turn = b.turn
-	return nil
-}
-
-func (b *Broker) Resume(req *stubs.ResumeRequest, res *stubs.ResumeResponse) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if !b.processing || !b.paused {
-		return nil
-	}
-	b.paused = false
-	return nil
-}
-
-func (b *Broker) Shutdown(req *stubs.ShutdownRequest, res *stubs.ShutdownResponse) error {
-	b.mu.Lock()
-	b.shutdown = true
-	b.stop = true
-	b.processing = false
-	b.paused = false
-	b.mu.Unlock()
-	return nil
-}
-
-func (b *Broker) GetAliveCells(req *stubs.AliveCellsCountRequest, res *stubs.AliveCellsCountResponse) error {
-	b.mu.Lock()
-	count := 0
-	for y := 0; y < b.height; y++ {
-		for x := 0; x < b.width; x++ {
-			if b.world[y][x] == 255 {
-				count++
-			}
-		}
-	}
-	res.CellsCount = count
-	res.CompletedTurns = b.turn
-	b.mu.Unlock()
-	return nil
-}
-
-func (b *Broker) StopProcessing(req *stubs.StopRequest, res *stubs.StopResponse) error {
-	b.mu.Lock()
-	b.stop = true
-	b.processing = false
-	b.mu.Unlock()
 	return nil
 }
 
@@ -269,7 +210,7 @@ func main() {
 	}
 
 	rpc.Register(broker)
-	listener, err := net.Listen("tcp", ":8030") // Broker listens on port 8030
+	listener, err := net.Listen("tcp", ":8030")
 	if err != nil {
 		log.Fatal("Error starting broker:", err)
 	}
