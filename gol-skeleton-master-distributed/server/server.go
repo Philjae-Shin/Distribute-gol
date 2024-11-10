@@ -1,4 +1,3 @@
-// server.go
 package main
 
 import (
@@ -47,39 +46,37 @@ func (g *GolWorker) CalculateNextState(req *stubs.WorkerRequest, res *stubs.Work
 	width := req.ImageWidth
 
 	newWorldSlice := make([][]uint8, height-2)
-	cellsFlipped := []util.Cell{}
-
+	flippedCells := []util.Cell{}
 	for y := 1; y < height-1; y++ {
 		newRow := make([]uint8, width)
 		for x := 0; x < width; x++ {
 			neighbours := calculateNeighbours(worldSlice, x, y, width, height)
-			newValue := worldSlice[y][x]
+			var newState uint8
 			if worldSlice[y][x] == 255 {
 				if neighbours == 2 || neighbours == 3 {
-					newValue = 255
+					newState = 255
 				} else {
-					newValue = 0
+					newState = 0
 				}
 			} else {
 				if neighbours == 3 {
-					newValue = 255
+					newState = 255
 				} else {
-					newValue = 0
+					newState = 0
 				}
 			}
-			newRow[x] = newValue
-			// Compare old and new values
-			if newValue != worldSlice[y][x] {
-				globalY := req.StartY + (y - 1)
-				cell := util.Cell{X: x, Y: globalY}
-				cellsFlipped = append(cellsFlipped, cell)
+			newRow[x] = newState
+
+			// Check if cell state has changed
+			if worldSlice[y][x] != newState {
+				flippedCells = append(flippedCells, util.Cell{X: x, Y: req.StartY + y - 1})
 			}
 		}
 		newWorldSlice[y-1] = newRow
 	}
 
 	res.WorldSlice = newWorldSlice
-	res.CellsFlipped = cellsFlipped
+	res.FlippedCells = flippedCells
 	return nil
 }
 
