@@ -1,366 +1,141 @@
 # Distributed Game of Life Implementation
 
-## 🌐 Overview
+**Go · RPC · Goroutines · Grid partitioning · AWS EC2**
 
-A high-performance distributed implementation of Conway's Game of Life that scales across multiple machines using Go's RPC framework. This system enables processing of massive grids by distributing computation across a network of worker nodes.
+## Overview
 
-## ✨ Key Features
+A distributed implementation of Conway's Game of Life, a grid simulation in which each cell evolves from its eight neighbors. A controller loads the starting board, a broker coordinates each generation, and networked workers compute separate row slices.
 
-- **Multi-node Architecture**: Distributed processing across AWS EC2 instances or local network
-- **Client-Server Separation**: Decoupled controller and computation engine
-- **Real-time Monitoring**: Live statistics and board state tracking
-- **Fault Resilience**: Graceful handling of node failures
-- **Scalable Design**: Linear performance scaling with additional nodes
-- **Network Optimized**: Efficient halo exchange and data compression
+The accompanying [project report](#project-report-and-design-notes) follows the work from parallel execution on one machine to a distributed design deployed on AWS EC2.
 
-## Report
-![Page 1](./content/report_1.png)
-![Page 2](./content/report_2.png)
-![Page 3](./content/report_3.png)
-![Page 4](./content/report_4.png)
-![Page 5](./content/report_5.png)
-![Page 6](./content/report_6.png)
+[Architecture](#system-architecture) · [Project report](#project-report-and-design-notes) · [Run locally](#run-locally) · [Code guide](#explore-the-implementation)
 
-## 🏗️ System Architecture
+## System architecture
 
-### Core Components
+![Controller, broker, and RPC workers](content/architecture.svg)
 
-![Distributed Architecture Overview](content/cw_diagrams-Distributed_1.png)
+### Design choices
 
-The system consists of three main components:
+- **Separate responsibilities:** the controller handles input, output, and user commands; the broker owns the world state; workers calculate the next state of assigned rows.
+- **Concurrent RPC work:** the broker keeps connections to its workers and launches one goroutine per worker for each generation.
+- **Explicit synchronization:** results return to their original row positions, and a `sync.WaitGroup` barrier gates publication of the next world.
+- **Interactive control:** pause/resume requests, PGM snapshots, and live-cell counts polled every two seconds.
 
-1. **Local Controller (Client)**
-   - Handles all I/O operations and user interactions
-   - Manages PGM image input/output
-   - Captures and processes keyboard commands
-   - Displays SDL window for visualization (optional)
+## One generation, end to end
 
-2. **GOL Engine (Server)**
-   - Processes Game of Life evolution logic
-   - Manages the complete world state
-   - Coordinates with worker nodes
-   - Handles RPC communication
+1. **Partition.** Split the world into horizontal strips. Include one neighboring row above and below each strip so workers can evaluate cells at partition boundaries.
+2. **Compute.** Workers apply Conway's rules to their assigned rows in parallel. The world wraps at its outer edges.
+3. **Assemble and publish.** Copy each returned strip into its original row range. Once all worker requests finish, publish the assembled world and advance the turn.
 
-3. **Communication Layer**
-   - RPC-based protocol for client-server communication
-   - Efficient binary serialization
-   - Asynchronous event streaming
+![Row partitioning, ghost rows, parallel computation, and synchronized publication](content/partitioning.svg)
 
-### Distributed Processing Pipeline
+## Project report and design notes
 
-#### Live Monitoring System
-![Real-time Monitoring](content/cw_diagrams-Distributed_2.png)
+The original report brings together the implementation, parallel-processing experiments, CPU profiling, AWS instance selection, and worker-count comparisons.
 
-The system provides continuous monitoring capabilities:
-- **Periodic Updates**: Alive cell count reported every 2 seconds
-- **Non-blocking Events**: Asynchronous event channel communication
-- **Performance Metrics**: Real-time throughput and latency tracking
-- **Health Checks**: Continuous node status monitoring
+<summary>Read the original project report</summary>
 
-#### State Management
-![State Management](content/cw_diagrams-Distributed_3.png)
+![Original project report — page 1](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_1.png)
 
-Efficient state handling across the distributed system:
-- **Persistent State**: GOL engine maintains world state between client sessions
-- **Snapshot Support**: On-demand PGM output of current state
-- **State Recovery**: Checkpoint and restore mechanisms
-- **Memory Optimization**: Efficient buffer management for large grids
+![Original project report — page 2](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_2.png)
 
-#### Interactive Control System
-![Control System](content/cw_diagrams-Distributed_4.png)
+![Original project report — page 3](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_3.png)
 
-Advanced control features for system management:
+![Original project report — page 4](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_4.png)
 
-**Keyboard Commands:**
-- `S` - Save current board state as PGM image
-- `Q` - Gracefully disconnect client (server continues)
-- `K` - Complete system shutdown with final state save
-- `P` - Pause/Resume processing toggle
+![Original project report — page 5](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_5.png)
 
-The control system ensures:
-- Clean client disconnection without server errors
-- Multiple client support (sequential connections)
-- State preservation across client sessions
-- Responsive command handling during computation
+![Original project report — page 6](https://raw.githubusercontent.com/Philjae-Shin/Distribute-gol/dcfbfa612ede5cf7d798c9cb85eeee015044d5be/content/report_6.png)
 
-### Multi-Worker Architecture
 
-![Worker Distribution](content/cw_diagrams-Distributed_5.png)
+<summary>Explore the original architecture and extension sketches</summary>
 
-The distributed computation layer:
-- **Dynamic Work Distribution**: Automatic partitioning based on worker count
-- **Load Balancing**: Even distribution of computational load
-- **Parallel Processing**: Independent worker nodes process grid sections
-- **Result Aggregation**: Efficient collection and merging of results
+These drawings document the project's design progression and extension ideas. The broker diagram also shows the controller's I/O channels and SDL event flow in more detail.
 
-### Broker-Based Architecture
+| Design topic | Original drawings |
+|---|---|
+| Controller and remote engine | [Initial architecture](content/cw_diagrams-Distributed_1.png) |
+| Monitoring and state | [Status polling](content/cw_diagrams-Distributed_2.png) · [State handling](content/cw_diagrams-Distributed_3.png) |
+| Interactive controls | [Keyboard control flow](content/cw_diagrams-Distributed_4.png) |
+| Distributed coordination | [Multi-worker layout](content/cw_diagrams-Distributed_5.png) · [Controller I/O and broker–worker design](content/cw_diagrams-Distributed_6.png) |
+| Extension sketches | [Direct halo exchange](content/cw_diagrams-Extensions_1.png) · [Parallelism within each node](content/cw_diagrams-Extensions_2.png) |
 
-![Broker Pattern](content/cw_diagrams-Distributed_6.png)
+## Run locally
 
-Advanced broker pattern implementation:
-- **Centralized Coordination**: Broker manages all worker communications
-- **Decoupled Design**: Controller and workers communicate only through broker
-- **Scalability**: Easy addition/removal of worker nodes
-- **Fault Isolation**: Worker failures don't affect controller
-
-## 🚀 Getting Started
+<details>
+<summary>Set up one controller, one broker, and three local workers</summary>
 
 ### Prerequisites
+
+Use a Go toolchain compatible with the [module's Go 1.17 target](gol-skeleton-master-distributed/go.mod). The controller also uses a C compiler with cgo support, SDL2 development libraries, and `pkg-config` on macOS/Linux. Both windowed and headless controller modes use this build setup. See the [SDL binding setup guide](https://github.com/veandco/go-sdl2/tree/v0.4.38#requirements).
+
+Clone the repository and enter the Go module:
+
 ```bash
-# Install Go 1.19+
-go version
-
-# Set up AWS CLI (for cloud deployment)
-aws configure
+git clone https://github.com/Philjae-Shin/Distribute-gol.git
+cd Distribute-gol/gol-skeleton-master-distributed
 ```
 
-## 💻 Usage
+### Configure the endpoints
 
-### Local Development
-
-#### Start the GOL Server
-```bash
-# Terminal 1: Start the GOL engine server
-go run ./server -port 8030
-```
-
-#### Run the Controller Client
-```bash
-# Terminal 2: Start the controller
-go run ./client -server localhost:8030 -w 512 -h 512 -turns 1000
-```
-
-### Distributed Deployment
-
-#### Launch Broker Node
-```bash
-# On broker machine (or AWS instance)
-./gol-distributed broker --port 8030 --workers 4
-```
-
-#### Start Worker Nodes
-```bash
-# On each worker machine
-./gol-distributed worker --broker broker-ip:8030 --id worker-1
-./gol-distributed worker --broker broker-ip:8030 --id worker-2
-# ... repeat for additional workers
-```
-
-#### Connect Controller
-```bash
-# On local machine
-./gol-distributed controller --broker broker-ip:8030 --image game.pgm
-```
-
-### Configuration Options
-```yaml
-# config.yaml
-controller:
-  server: "localhost:8030"
-  timeout: 30s
-  
-engine:
-  port: 8030
-  max_connections: 10
-  buffer_size: 4096
-  
-workers:
-  count: 4
-  threads_per_worker: 2
-  halo_size: 1
-```
-
-## 🔧 Implementation (High level code)
-
-### RPC Protocol (Code Example)
-
-The system uses Go's built-in RPC framework with custom message types:
+For a local run, set `workerAddrs` in [`broker/broker.go`](gol-skeleton-master-distributed/broker/broker.go) to:
 
 ```go
-// Core RPC methods
-type GOLService interface {
-    // Start processing with given parameters
-    StartEvolution(params Params, reply *Board) error
-    
-    // Get current alive cells count
-    GetAliveCells(turn int, count *int) error
-    
-    // Pause/Resume processing
-    TogglePause(pause bool, reply *bool) error
-    
-    // Save current state
-    SaveBoard(filename string, reply *bool) error
-    
-    // Shutdown system
-    Shutdown(save bool, reply *Board) error
+workerAddrs := []string{
+    "127.0.0.1:8031",
+    "127.0.0.1:8032",
+    "127.0.0.1:8033",
 }
 ```
 
-### Network Communication
+Set the broker connection in [`gol/distributor.go`](gol-skeleton-master-distributed/gol/distributor.go) to:
 
-#### Data Transfer Optimization
-- **Halo Exchange**: Only boundary rows/columns transmitted between workers
-- **Delta Encoding**: Send only changed cells for sparse updates
-- **Compression**: Optional gzip compression for large boards
-- **Batching**: Multiple small messages combined into single transmission
-
-#### Message Flow
-```
-Controller -> Broker: StartGame(params)
-Broker -> Workers: DistributeWork(sections)
-Workers -> Broker: ReturnResults(computed)
-Broker -> Controller: UpdateState(newBoard)
+```go
+client, err := rpc.Dial("tcp", "127.0.0.1:8030")
 ```
 
-### Performance Optimizations
+The broker's address list determines the number of workers. For a deployment across machines, use the workers' reachable addresses and the broker's reachable address in these same locations.
 
-#### Computation
-- **Strip Partitioning**: Optimal cache-friendly data layout
-- **Double Buffering**: Eliminate allocation overhead
-- **SIMD Operations**: Vectorized cell counting (where available)
+### Start the processes
 
-#### Communication
-- **Async I/O**: Non-blocking network operations
-- **Connection Pooling**: Reuse TCP connections
-- **Protocol Buffers**: Efficient binary serialization (optional)
+Run each command in a **separate terminal**, from `gol-skeleton-master-distributed/`. Start the workers first, then the broker, then the controller.
 
-## 📊 Performance Benchmarks
+| Order | Process | Command |
+|---|---|---|
+| 1 | Worker 1 | `go run ./server -port 8031` |
+| 2 | Worker 2 | `go run ./server -port 8032` |
+| 3 | Worker 3 | `go run ./server -port 8033` |
+| 4 | Broker | `go run ./broker` |
+| 5 | Controller | `go run . -w 512 -h 512 -turns 100 -headless` |
 
-### Scalability Results
+This example reads `images/512x512.pgm` and, after 100 generations, writes `out/512x512x100.pgm`. Snapshots follow the pattern `out/<width>x<height>x<completed-turn>.pgm`.
 
-Testing with 512x512 grid, 1000 iterations:
+### Interactive controls
 
-| Workers | Time (s) | Speedup | Efficiency |
-|---------|----------|---------|------------|
-| 1       | 120.5    | 1.0x    | 100%       |
-| 2       | 62.3     | 1.93x   | 96.5%      |
-| 4       | 32.1     | 3.75x   | 93.8%      |
-| 8       | 17.2     | 7.01x   | 87.6%      |
-| 16      | 9.8      | 12.3x   | 76.9%      |
+Omit `-headless` to use the SDL window's keyboard controls:
 
-### Network Overhead Analysis
+| Key | Action |
+|---|---|
+| `s` | Save a PGM snapshot of the current world. |
+| `p` | Pause or resume the simulation. |
+| `q` | Request a stop, save the world, and exit the controller. |
+| `k` | Send the broker's simulation shutdown request, save a snapshot, and exit the controller. |
 
-For 1024x1024 grid with 8 workers:
-- **Halo Exchange**: 2.3% of total time
-- **Result Collection**: 1.1% of total time  
-- **Serialization**: 0.8% of total time
-- **Network Latency**: 3.2ms average (LAN)
+In headless mode, `Ctrl+C` requests the controller's stop-and-save path. Broker and worker processes have their own lifetimes; stop those terminals after the run.
 
-### Large-Scale Testing
+</details>
 
-Successfully tested with:
-- **Maximum Grid**: 5120x5120 pixels
-- **Maximum Workers**: 64 nodes
-- **Maximum Throughput**: 2.1 billion cells/second
+## Explore the implementation
 
-## 🔨 Advanced Features
+All paths below are inside `gol-skeleton-master-distributed/`.
 
-### Halo Exchange Optimization
+| Component | What to look for |
+|---|---|
+| [`broker/broker.go`](gol-skeleton-master-distributed/broker/broker.go) | World ownership, row partitioning, concurrent RPC calls, and the generation barrier. |
+| [`server/server.go`](gol-skeleton-master-distributed/server/server.go) | Neighbor counting, wraparound coordinates, and Conway's transition rules. |
+| [`stubs/stubs.go`](gol-skeleton-master-distributed/stubs/stubs.go) | Typed requests and responses shared by the controller, broker, and workers. |
+| [`gol/distributor.go`](gol-skeleton-master-distributed/gol/distributor.go) | Simulation requests, controls, polling, and snapshot coordination. |
+| [`gol/io.go`](gol-skeleton-master-distributed/gol/io.go) | Channel-based PGM input and output. |
+| [`gol_test.go`](gol-skeleton-master-distributed/gol_test.go) · [reference boards](gol-skeleton-master-distributed/check/images/) | Final-state comparisons against stored PGM fixtures. |
 
-![Halo Exchange](content/cw_diagrams-Extensions_1.png)
-
-Direct peer-to-peer halo exchange between adjacent workers:
-- Eliminates broker bottleneck for boundary data
-- Reduces network traffic by 40%
-- Enables overlap of computation and communication
-- Supports both synchronous and asynchronous modes
-
-### Hybrid Parallel-Distributed System
-
-![Hybrid Architecture](content/cw_diagrams-Extensions_2.png)
-
-Combines distributed and parallel approaches:
-- Multiple threads per distributed node
-- Optimal resource utilization on multi-core systems
-- Configurable thread-to-worker ratio
-- Automatic load balancing between threads and nodes
-
-### Live SDL Visualization
-
-Real-time visualization of distributed computation:
-- Streaming cell updates from remote nodes
-- Adaptive frame rate based on network latency
-- Efficient delta-based rendering
-- Optional compression for slow networks
-
-### Fault Tolerance Mechanisms
-
-Comprehensive failure handling:
-- **Heartbeat Monitoring**: Detect failed nodes within 5 seconds
-- **Work Redistribution**: Automatic reassignment of failed worker's tasks
-- **State Checkpointing**: Periodic snapshots for recovery
-- **Graceful Degradation**: Continue with reduced workers
-
-## 🐛 Debugging and Monitoring
-
-### Logging
-```bash
-# Enable debug logging
-export GOL_LOG_LEVEL=debug
-
-# Log to file
-./gol-distributed 2> gol.log
-```
-
-### Performance Profiling
-```bash
-# CPU profiling
-go run . -cpuprofile cpu.prof
-
-# Memory profiling
-go run . -memprofile mem.prof
-
-# Analyze profiles
-go tool pprof cpu.prof
-```
-
-### Network Monitoring
-```bash
-# Monitor RPC calls
-tcpdump -i any port 8030
-
-# Check connection status
-netstat -an | grep 8030
-```
-
-## 🤝 Contributing
-
-Areas for improvement:
-
-### Priority Features
-- **gRPC Migration**: Replace RPC with gRPC for better performance
-- **Kubernetes Support**: Container orchestration for cloud deployment  
-- **WebAssembly Client**: Browser-based controller
-- **GPU Acceleration**: CUDA/OpenCL worker nodes
-- **Adaptive Partitioning**: Dynamic load balancing based on cell density
-
-### Development Workflow
-1. Fork the repository
-2. Create a feature branch
-3. Implement your feature with tests
-4. Submit a pull request with benchmarks
-
-### Testing
-```bash
-# Run unit tests
-go test ./...
-
-# Run integration tests  
-go test -tags=integration
-
-# Run benchmarks
-go test -bench=. -benchmem
-```
-
-## 📚 References
-
-- [Building Distributed Systems in Go](https://www.oreilly.com/library/view/distributed-systems-with/9781492077834/)
-- [Go RPC Package Documentation](https://pkg.go.dev/net/rpc)
-- [Conway's Game of Life Algorithms](https://www.conwaylife.com/wiki/Cellular_automaton)
-- [Halo Exchange in Parallel Computing](https://en.wikipedia.org/wiki/Halo_exchange)
-
-## 🙏 Acknowledgments
-
-- Conway's Game of Life community for patterns and test cases
-- Go team for the excellent RPC framework
-- Contributors and testers from the open source community
+See the [framework license](gol-skeleton-master-distributed/LICENSE) and [PGM writer attribution](gol-skeleton-master-distributed/licenses/pgm-writer-license).
