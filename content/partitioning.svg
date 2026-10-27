@@ -1,0 +1,278 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="1440" height="1100" viewBox="0 0 1440 1100" role="img" aria-labelledby="title description">
+  <title id="title">One Game of Life generation split across three workers</title>
+  <desc id="description">A schematic row map shows a 12-row world split into three horizontal strips. Worker 1 owns rows 0 through 3 and receives ghost rows 11 and 4. Worker 2 owns rows 4 through 7 and receives ghost rows 3 and 8. Worker 3 owns rows 8 through 11 and receives ghost rows 7 and 0. The broker copies both ghost rows from the current generation, including wraparound at the top and bottom. Each worker computes and returns only its four owned rows; workers do not exchange rows with one another. The broker places results into their original row ranges as replies arrive, waits for every worker, then publishes the next world. Left and right columns also wrap during neighbor lookup. Cell states are omitted to emphasize row ownership and data movement.</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#2563EB"/></marker>
+    <marker id="arrow-teal" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#0F766E"/></marker>
+    <marker id="arrow-slate" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#64748B"/></marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #0F172A; }
+      .kicker { font-size: 14px; font-weight: 700; letter-spacing: 1.6px; fill: #475569; }
+      .heading { font-size: 34px; font-weight: 700; }
+      .label { font-size: 23px; font-weight: 700; }
+      .body { font-size: 18px; fill: #475569; }
+      .detail { font-size: 17px; fill: #475569; }
+      .row-number { font-size: 17px; fill: #475569; }
+    </style>
+  </defs>
+  <rect width="1440" height="1100" fill="#F8FAFC"/>
+  <text x="64" y="57" class="kicker">WORK PARTITIONING</text>
+  <text x="64" y="104" class="heading">One generation. Three independent strips.</text>
+  <text x="64" y="139" class="body">The broker sends each worker four owned rows plus two ghost rows for neighbor context.</text>
+  <text x="64" y="176" class="kicker">01 / SPLIT THE WORLD</text>
+  <text x="480" y="176" class="kicker">02 / COMPUTE IN PARALLEL</text>
+  <text x="1104" y="176" class="kicker">03 / ASSEMBLE + WAIT</text>
+  <path d="M 344 424 H 392 V 306 H 468" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+  <path d="M 344 520 H 416 V 560 H 468" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-teal)"/>
+  <path d="M 344 616 H 392 V 814 H 468" fill="none" stroke="#64748B" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-slate)"/>
+  <path d="M 928 306 H 1008 V 424 H 1092" fill="none" stroke="#2563EB" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-blue)"/>
+  <path d="M 928 560 H 984 V 520 H 1092" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-teal)"/>
+  <path d="M 928 814 H 1032 V 616 H 1092" fill="none" stroke="#64748B" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-slate)"/>
+  <rect x="64" y="282" width="280" height="418" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="88" y="320" class="label">Current world</text>
+  <text x="88" y="350" class="detail">Generation t</text>
+  <rect x="128" y="376" width="192" height="96" rx="0" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1.5"/>
+  <path d="M 152 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 176 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 200 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 224 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 248 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 272 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 296 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 400 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 424 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 448 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="128" y="472" width="192" height="96" rx="0" fill="#CCFBF1" stroke="#5EEAD4" stroke-width="1.5"/>
+  <path d="M 152 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 176 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 200 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 224 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 248 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 272 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 296 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 496 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 520 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 544 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="128" y="568" width="192" height="96" rx="0" fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.5"/>
+  <path d="M 152 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 176 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 200 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 224 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 248 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 272 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 296 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 592 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 616 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 129 640 H 319" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <text x="112" y="393" class="row-number" text-anchor="end">0</text>
+  <text x="112" y="417" class="row-number" text-anchor="end">1</text>
+  <text x="112" y="441" class="row-number" text-anchor="end">2</text>
+  <text x="112" y="465" class="row-number" text-anchor="end">3</text>
+  <text x="112" y="489" class="row-number" text-anchor="end">4</text>
+  <text x="112" y="513" class="row-number" text-anchor="end">5</text>
+  <text x="112" y="537" class="row-number" text-anchor="end">6</text>
+  <text x="112" y="561" class="row-number" text-anchor="end">7</text>
+  <text x="112" y="585" class="row-number" text-anchor="end">8</text>
+  <text x="112" y="609" class="row-number" text-anchor="end">9</text>
+  <text x="112" y="633" class="row-number" text-anchor="end">10</text>
+  <text x="112" y="657" class="row-number" text-anchor="end">11</text>
+  <text x="88" y="688" class="detail">All columns in each strip</text>
+  <rect x="1104" y="282" width="272" height="418" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="1128" y="320" class="label">Next-world buffer</text>
+  <text x="1128" y="350" class="detail">Arrival order may vary</text>
+  <rect x="1168" y="376" width="192" height="96" rx="0" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1.5"/>
+  <path d="M 1192 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1216 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1240 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1264 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1288 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1312 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1336 377 V 471" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 400 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 424 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 448 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="1168" y="472" width="192" height="96" rx="0" fill="#CCFBF1" stroke="#5EEAD4" stroke-width="1.5"/>
+  <path d="M 1192 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1216 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1240 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1264 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1288 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1312 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1336 473 V 567" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 496 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 520 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 544 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="1168" y="568" width="192" height="96" rx="0" fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.5"/>
+  <path d="M 1192 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1216 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1240 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1264 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1288 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1312 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1336 569 V 663" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 592 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 616 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 1169 640 H 1359" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <text x="1152" y="393" class="row-number" text-anchor="end">0</text>
+  <text x="1152" y="417" class="row-number" text-anchor="end">1</text>
+  <text x="1152" y="441" class="row-number" text-anchor="end">2</text>
+  <text x="1152" y="465" class="row-number" text-anchor="end">3</text>
+  <text x="1152" y="489" class="row-number" text-anchor="end">4</text>
+  <text x="1152" y="513" class="row-number" text-anchor="end">5</text>
+  <text x="1152" y="537" class="row-number" text-anchor="end">6</text>
+  <text x="1152" y="561" class="row-number" text-anchor="end">7</text>
+  <text x="1152" y="585" class="row-number" text-anchor="end">8</text>
+  <text x="1152" y="609" class="row-number" text-anchor="end">9</text>
+  <text x="1152" y="633" class="row-number" text-anchor="end">10</text>
+  <text x="1152" y="657" class="row-number" text-anchor="end">11</text>
+  <text x="1128" y="688" class="detail">Fill by original row range</text>
+  <rect x="480" y="190" width="448" height="232" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <path d="M 496 190 H 912" fill="none" stroke="#2563EB" stroke-width="4" stroke-linejoin="round"/>
+  <text x="504" y="225" class="label" style="fill:#2563EB">Worker 1</text>
+  <text x="904" y="225" class="detail" text-anchor="end">Owns rows 0–3</text>
+  <rect x="544" y="250" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 251 V 273" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="274" width="192" height="96" rx="0" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1.5"/>
+  <path d="M 568 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 275 V 369" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 298 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 322 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 346 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="370" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 371 V 393" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <text x="526" y="267" class="row-number" style="fill:#B45309" text-anchor="end">11</text>
+  <text x="526" y="291" class="row-number" style="fill:#475569" text-anchor="end">0</text>
+  <text x="526" y="315" class="row-number" style="fill:#475569" text-anchor="end">1</text>
+  <text x="526" y="339" class="row-number" style="fill:#475569" text-anchor="end">2</text>
+  <text x="526" y="363" class="row-number" style="fill:#475569" text-anchor="end">3</text>
+  <text x="526" y="387" class="row-number" style="fill:#B45309" text-anchor="end">4</text>
+  <path d="M 746 274 H 752 V 370 H 746" fill="none" stroke="#2563EB" stroke-width="2" stroke-linejoin="round"/>
+  <text x="768" y="316" class="detail" style="fill:#2563EB">Compute + return</text>
+  <text x="768" y="343" class="detail" style="fill:#2563EB">these 4 rows</text>
+  <text x="760" y="267" class="detail" style="fill:#B45309">row 11 · wraps</text>
+  <text x="760" y="387" class="detail" style="fill:#B45309">row 4 · context</text>
+  <rect x="480" y="444" width="448" height="232" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <path d="M 496 444 H 912" fill="none" stroke="#0F766E" stroke-width="4" stroke-linejoin="round"/>
+  <text x="504" y="479" class="label" style="fill:#0F766E">Worker 2</text>
+  <text x="904" y="479" class="detail" text-anchor="end">Owns rows 4–7</text>
+  <rect x="544" y="504" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 505 V 527" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="528" width="192" height="96" rx="0" fill="#CCFBF1" stroke="#5EEAD4" stroke-width="1.5"/>
+  <path d="M 568 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 529 V 623" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 552 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 576 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 600 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="624" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 625 V 647" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <text x="526" y="521" class="row-number" style="fill:#B45309" text-anchor="end">3</text>
+  <text x="526" y="545" class="row-number" style="fill:#475569" text-anchor="end">4</text>
+  <text x="526" y="569" class="row-number" style="fill:#475569" text-anchor="end">5</text>
+  <text x="526" y="593" class="row-number" style="fill:#475569" text-anchor="end">6</text>
+  <text x="526" y="617" class="row-number" style="fill:#475569" text-anchor="end">7</text>
+  <text x="526" y="641" class="row-number" style="fill:#B45309" text-anchor="end">8</text>
+  <path d="M 746 528 H 752 V 624 H 746" fill="none" stroke="#0F766E" stroke-width="2" stroke-linejoin="round"/>
+  <text x="768" y="570" class="detail" style="fill:#0F766E">Compute + return</text>
+  <text x="768" y="597" class="detail" style="fill:#0F766E">these 4 rows</text>
+  <text x="760" y="521" class="detail" style="fill:#B45309">row 3 · context</text>
+  <text x="760" y="641" class="detail" style="fill:#B45309">row 8 · context</text>
+  <rect x="480" y="698" width="448" height="232" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <path d="M 496 698 H 912" fill="none" stroke="#475569" stroke-width="4" stroke-linejoin="round"/>
+  <text x="504" y="733" class="label" style="fill:#475569">Worker 3</text>
+  <text x="904" y="733" class="detail" text-anchor="end">Owns rows 8–11</text>
+  <rect x="544" y="758" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 759 V 781" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="782" width="192" height="96" rx="0" fill="#E2E8F0" stroke="#94A3B8" stroke-width="1.5"/>
+  <path d="M 568 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 783 V 877" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 806 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 830 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 545 854 H 735" fill="none" stroke="#CBD5E1" stroke-width="0.8" stroke-linejoin="round"/>
+  <rect x="544" y="878" width="192" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <path d="M 568 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 592 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 616 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 640 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 664 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 688 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <path d="M 712 879 V 901" fill="none" stroke="#FDE68A" stroke-width="0.8" stroke-linejoin="round"/>
+  <text x="526" y="775" class="row-number" style="fill:#B45309" text-anchor="end">7</text>
+  <text x="526" y="799" class="row-number" style="fill:#475569" text-anchor="end">8</text>
+  <text x="526" y="823" class="row-number" style="fill:#475569" text-anchor="end">9</text>
+  <text x="526" y="847" class="row-number" style="fill:#475569" text-anchor="end">10</text>
+  <text x="526" y="871" class="row-number" style="fill:#475569" text-anchor="end">11</text>
+  <text x="526" y="895" class="row-number" style="fill:#B45309" text-anchor="end">0</text>
+  <path d="M 746 782 H 752 V 878 H 746" fill="none" stroke="#475569" stroke-width="2" stroke-linejoin="round"/>
+  <text x="768" y="824" class="detail" style="fill:#475569">Compute + return</text>
+  <text x="768" y="851" class="detail" style="fill:#475569">these 4 rows</text>
+  <text x="760" y="775" class="detail" style="fill:#B45309">row 7 · context</text>
+  <text x="760" y="895" class="detail" style="fill:#B45309">row 0 · wraps</text>
+  <rect x="64" y="738" width="280" height="192" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+  <path d="M 80 738 H 328" fill="none" stroke="#D97706" stroke-width="4" stroke-linejoin="round"/>
+  <text x="88" y="778" class="label">Toroidal boundaries</text>
+  <text x="88" y="814" class="body">Above row 0 → row 11</text>
+  <text x="88" y="845" class="body">Below row 11 → row 0</text>
+  <path d="M 88 863 H 320" fill="none" stroke="#E2E8F0" stroke-width="1" stroke-linejoin="round"/>
+  <text x="88" y="895" class="detail">Left / right edges wrap too.</text>
+  <path d="M 1240 700 V 726" fill="none" stroke="#64748B" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-slate)"/>
+  <rect x="1104" y="728" width="272" height="104" rx="12" fill="#F0FDFA" stroke="#99F6E4" stroke-width="1.5"/>
+  <text x="1240" y="766" class="body" style="fill:#0F766E" text-anchor="middle">Wait for all 3 workers</text>
+  <text x="1240" y="797" class="detail" text-anchor="middle">Generation barrier</text>
+  <path d="M 1240 832 V 864" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-linejoin="round" marker-end="url(#arrow-teal)"/>
+  <rect x="1104" y="866" width="272" height="64" rx="12" fill="#0F766E" stroke="#0F766E" stroke-width="1.5"/>
+  <text x="1240" y="905" class="label" style="fill:#FFFFFF" text-anchor="middle">Publish next world</text>
+  <text x="1104" y="958" class="detail">Generation t + 1</text>
+  <path d="M 64 986 H 1376" fill="none" stroke="#CBD5E1" stroke-width="1" stroke-linejoin="round"/>
+  <rect x="64" y="1010" width="28" height="24" rx="0" fill="#DBEAFE" stroke="#93C5FD" stroke-width="1.5"/>
+  <text x="108" y="1028" class="body">Owned rows: compute and return</text>
+  <rect x="666" y="1010" width="28" height="24" rx="0" fill="#FFFBEB" stroke="#D97706" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="710" y="1028" class="body">Ghost rows: read-only neighbor context</text>
+  <text x="64" y="1072" class="detail">Example: 12 rows · 3 workers · 6 input rows and 4 output rows per worker</text>
+  <text x="1376" y="1072" class="detail" text-anchor="end">02 / PARTITIONING</text>
+</svg>

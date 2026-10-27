@@ -1,0 +1,125 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="940" viewBox="0 0 1440 940" role="img" aria-labelledby="title desc">
+  <title id="title">Distributed Game of Life: controller, broker, and three RPC workers</title>
+  <desc id="desc">The controller reads PGM input, submits the initial world and run settings, handles keyboard controls, and writes snapshots and the final world to PGM files. The broker owns the complete world. Each generation, it partitions rows with halo rows, sends independent RPC requests to three workers, gathers returned rows, waits for all workers, and advances the full world. Workers compute their assigned row slices independently and return results to the broker. Separate controller-to-broker RPC calls handle pause, resume, snapshots, alive-cell polling every two seconds, and completion checks every second.</desc>
+  <defs>
+    <marker id="arrow-blue" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#2563EB"/>
+    </marker>
+    <marker id="arrow-teal" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#0F766E"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+      <path d="M0 0 L9 4.5 L0 9 Z" fill="#D97706"/>
+    </marker>
+    <marker id="arrow-slate" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M0 0 L8 4 L0 8 Z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      text { font-family: Arial, Helvetica, sans-serif; fill: #0F172A; }
+      .kicker { font-size: 14px; font-weight: 700; letter-spacing: 2px; fill: #475569; }
+      .heading { font-size: 34px; font-weight: 700; }
+      .label { font-size: 24px; font-weight: 700; }
+      .body { font-size: 18px; fill: #475569; }
+      .detail { font-size: 16px; fill: #475569; }
+      .step { font-size: 18px; font-weight: 700; }
+      .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; fill: #475569; }
+      .blue { fill: none; stroke: #2563EB; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+      .teal { fill: none; stroke: #0F766E; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="940" fill="#F8FAFC"/>
+  <text x="64" y="57" class="kicker">DISTRIBUTED GAME OF LIFE</text>
+  <text x="64" y="104" class="heading">One world. Three RPC workers.</text>
+  <text x="64" y="139" class="body">The controller handles I/O. The broker coordinates each generation.</text>
+
+  <text x="64" y="196" class="kicker">INPUT &amp; CONTROL</text>
+  <text x="528" y="196" class="kicker">SIMULATION STATE</text>
+  <text x="1088" y="196" class="kicker">INDEPENDENT COMPUTE</text>
+
+  <!-- Initial submission and requested world responses. -->
+  <text x="448" y="292" text-anchor="middle" class="detail">Initial world</text>
+  <text x="448" y="314" text-anchor="middle" class="detail">+ run settings</text>
+  <path d="M368 334 H526" class="blue" marker-end="url(#arrow-blue)"/>
+  <text x="448" y="514" text-anchor="middle" class="detail">Snapshot / final</text>
+  <text x="448" y="536" text-anchor="middle" class="detail">world</text>
+  <path d="M528 556 H370" class="teal" marker-end="url(#arrow-teal)"/>
+
+  <!-- Work branches on the left; results gather around the outside. -->
+  <text x="978" y="235" text-anchor="middle" class="detail">Rows + halos</text>
+  <path d="M872 354 H976 M976 274 V550" class="blue"/>
+  <path d="M976 274 H1086" class="blue" marker-end="url(#arrow-blue)"/>
+  <path d="M976 412 H1086" class="blue" marker-end="url(#arrow-blue)"/>
+  <path d="M976 550 H1086" class="blue" marker-end="url(#arrow-blue)"/>
+  <circle cx="976" cy="354" r="4" fill="#2563EB"/>
+  <circle cx="976" cy="412" r="3.5" fill="#2563EB"/>
+  <path d="M1376 274 H1400 M1376 412 H1400 M1376 550 H1400" class="teal"/>
+  <path d="M1400 274 V650 H912 V430 H874" class="teal" marker-end="url(#arrow-teal)"/>
+  <circle cx="1400" cy="412" r="3.5" fill="#0F766E"/>
+  <circle cx="1400" cy="550" r="3.5" fill="#0F766E"/>
+  <text x="1156" y="678" text-anchor="middle" class="detail">Updated row slices</text>
+
+  <!-- The controller owns file I/O and user interaction. -->
+  <rect x="64" y="220" width="304" height="392" rx="12" fill="#FFFFFF" stroke="#CBD5E1"/>
+  <path d="M80 220 H352" stroke="#64748B" stroke-width="4"/>
+  <text x="88" y="265" class="label">Controller</text>
+  <text x="88" y="297" class="body">Owns I/O and controls</text>
+  <text x="88" y="344" class="kicker">READ</text>
+  <rect x="88" y="360" width="256" height="72" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="106" y="389" class="step">PGM input</text>
+  <text x="106" y="415" class="code">images/*.pgm</text>
+  <text x="88" y="466" class="kicker">WRITE</text>
+  <rect x="88" y="482" width="256" height="72" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <text x="106" y="511" class="step">Snapshots + final state</text>
+  <text x="106" y="537" class="code">out/*.pgm</text>
+  <text x="88" y="588" class="code">gol/distributor.go</text>
+
+  <!-- The broker holds the full world and advances after all replies. -->
+  <rect x="528" y="220" width="344" height="392" rx="12" fill="#FFFFFF" stroke="#93C5FD"/>
+  <path d="M544 220 H856" stroke="#2563EB" stroke-width="4"/>
+  <text x="552" y="265" class="label">Broker</text>
+  <text x="552" y="297" class="body">Owns the complete world</text>
+  <rect x="552" y="328" width="296" height="52" rx="8" fill="#EFF6FF"/>
+  <circle cx="577" cy="354" r="13" fill="#2563EB"/>
+  <text x="577" y="360" text-anchor="middle" font-size="16" font-weight="700" style="fill:#FFFFFF">1</text>
+  <text x="600" y="361" class="step">Partition rows + halos</text>
+  <path d="M700 381 V402" fill="none" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow-slate)"/>
+  <rect x="552" y="404" width="296" height="52" rx="8" fill="#F0FDFA"/>
+  <circle cx="577" cy="430" r="13" fill="#0F766E"/>
+  <text x="577" y="436" text-anchor="middle" font-size="16" font-weight="700" style="fill:#FFFFFF">2</text>
+  <text x="600" y="437" class="step">Gather + wait for replies</text>
+  <path d="M700 457 V478" fill="none" stroke="#94A3B8" stroke-width="2" marker-end="url(#arrow-slate)"/>
+  <rect x="552" y="480" width="296" height="52" rx="8" fill="#F8FAFC" stroke="#E2E8F0"/>
+  <circle cx="577" cy="506" r="13" fill="#475569"/>
+  <text x="577" y="512" text-anchor="middle" font-size="16" font-weight="700" style="fill:#FFFFFF">3</text>
+  <text x="600" y="513" class="step">Advance full world</text>
+  <text x="700" y="558" text-anchor="middle" class="detail">Repeat for each generation</text>
+  <text x="552" y="588" class="code">broker/broker.go</text>
+
+  <!-- Identical worker services compute independent row slices. -->
+  <rect x="1088" y="220" width="288" height="108" rx="12" fill="#FFFFFF" stroke="#99F6E4"/>
+  <path d="M1104 220 H1360" stroke="#0F766E" stroke-width="4"/>
+  <text x="1112" y="260" class="label">Worker 1</text>
+  <text x="1112" y="291" class="body">Compute next row slice</text>
+  <rect x="1088" y="358" width="288" height="108" rx="12" fill="#FFFFFF" stroke="#99F6E4"/>
+  <path d="M1104 358 H1360" stroke="#0F766E" stroke-width="4"/>
+  <text x="1112" y="398" class="label">Worker 2</text>
+  <text x="1112" y="429" class="body">Compute next row slice</text>
+  <rect x="1088" y="496" width="288" height="108" rx="12" fill="#FFFFFF" stroke="#99F6E4"/>
+  <path d="M1104 496 H1360" stroke="#0F766E" stroke-width="4"/>
+  <text x="1112" y="536" class="label">Worker 3</text>
+  <text x="1112" y="567" class="body">Compute next row slice</text>
+  <text x="1232" y="632" text-anchor="middle" class="code">server/server.go</text>
+
+  <!-- Control requests and periodic polling are separate from generation work. -->
+  <rect x="64" y="724" width="1312" height="140" rx="12" fill="#FFFFFF" stroke="#FCD34D"/>
+  <text x="88" y="758" class="kicker">CONTROL &amp; POLLING</text>
+  <text x="88" y="812" font-size="20" font-weight="700">Controller</text>
+  <path d="M215 805 H359" fill="none" stroke="#D97706" stroke-width="2.5" marker-start="url(#arrow-amber)" marker-end="url(#arrow-amber)"/>
+  <text x="386" y="812" font-size="20" font-weight="700">Broker</text>
+  <text x="550" y="795" class="body">Pause / resume · snapshot requests</text>
+  <text x="550" y="829" class="body">Alive counts every 2 s · completion checks every 1 s</text>
+
+  <text x="64" y="906" class="detail">PGM I/O · broker-managed state · row-parallel computation over Go net/rpc</text>
+  <text x="1376" y="906" text-anchor="end" class="detail">01 / OVERVIEW</text>
+</svg>
